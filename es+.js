@@ -161,6 +161,8 @@ class ElemScript extends HTMLScriptElement {
                 data: {},
                 styles: {}
             },
+            data: {},
+            styles: {},
             slots: {},
             events: {}
         };
@@ -191,6 +193,8 @@ class ElemScript extends HTMLScriptElement {
         }
 
         this.$instance = Object.merge_es_private(this.$instance, this.$component, {
+            data: this.$extend.data,
+            styles: this.$extend.styles,
             slots: this.$extend.slots
         });
 

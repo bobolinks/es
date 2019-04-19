@@ -1,0 +1,18 @@
+<html>
+<script src="../../es+.js"></script>
+<template id='template1'>
+    <span>
+        This is a template. Title = [${this.data.title}]
+    </span>
+</template>
+<body>
+    <script id="elid" is="es-script" component='#template1'>
+        {
+            data: {
+                title: 'This is the title from this.data.title.'
+            }
+        }
+    </script>
+    <button onclick="document.getElementById('elid').$instance.data.title='Title from button!';">Change Title</button>
+</body>
+</html>

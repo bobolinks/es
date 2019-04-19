@@ -1,0 +1,50 @@
+<html>
+<script src="../../es+.js"></script>
+<script>
+    window.vars = new Proxy({
+        title: 'This is global var title!'
+    }, {
+        get: function (target, key, receiver) {
+            console.log('Proxy get', {
+                target,
+                key,
+                receiver
+            });
+            return Reflect.get(target, key, receiver);
+        },
+        set: function (target, key, value, receiver) {
+            console.log('Proxy set', {
+                target,
+                key,
+                value,
+                receiver
+            });
+            return Reflect.set(target, key, value, receiver);
+        }
+    });
+</script>
+<template id='template1'>
+    <span>
+        This is a template. Title = [${this.data.title}]
+    </span>
+</template>
+
+<body>
+    <script id="elid" is="es-script" type="text/es+" component='#template1'>
+        {
+            data: {
+                set title(val) {
+                    console.log('set title = ', val);
+                    window.vars.title = val;
+                },
+                get title() {
+                    console.log('get title = ', window.vars.title);
+                    return window.vars.title;
+                }
+            }
+        }
+    </script>
+    <button onclick="document.getElementById('elid').$instance.data.title='Title from button!';">Change Title</button>
+</body>
+
+</html>

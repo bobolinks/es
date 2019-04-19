@@ -1,0 +1,73 @@
+<html>
+<script src="../es+.js"></script>
+<script src="ee+/ee-button.js"></script>
+<script src="ee+/ee-label.js"></script>
+<script src="ee+/ee-article.js"></script>
+<script src="comtest.js"></script>
+<script src="default.js"></script>
+<script src="page1.js"></script>
+<script src="page2.js"></script>
+<script>
+    $es.store = new Proxy({ title: 'title[global]' },
+        {
+            get: function (target, key, receiver) {
+                console.log('from store get', {target, key, receiver});
+                return Reflect.get(target, key, receiver);
+            },
+            set: function (target, key, value, receiver) {
+                console.log('from store set', {target, key, value, receiver});
+                return Reflect.set(target, key, value, receiver);
+            }
+        }
+    );
+</script>
+
+<template id='testtmp'>
+    <span>
+        this is a template A = ${this.data.a}
+    </span>
+    <script id='ccc' is="es-script" component='comtest'>
+        {
+            data: {
+                c: 700
+            }
+        }
+    </script>
+</template>
+<template id='testtmp1'>
+    <span>
+        this is a span B = ${this.data.b}
+    </span>
+    <script is="es-script" component='#testtmp'>
+        {
+            data: {
+                a: 1
+            }
+        }
+    </script>
+</template>
+
+<body>
+    <div id='app'>bbb </div>
+    <script id="aaa" is="es-script" component='#testtmp1'>
+        {
+            data: {
+                b: 2
+            }
+        }
+    </script>
+    <button title="ckkck" onclick="document.getElementById('aaa').setAttribute('component', '#testtmp1');">模版组建</button>
+    <button title="ckkck" onclick="document.getElementById('aaa').setAttribute('component', 'comtest');">js组件</button>
+    <button title="ckkck" onclick="document.getElementById('ccc').$instance.data.article='aaaaaaaaaa';">修改值</button>
+    <button title="ckkck" onclick="document.getElementById('ccc').$instance.data.title2='aasdasdasd';">修改值BTN</button>
+    <button title="ckkck" onclick="$es.router.goto('/page1');">page1</button>
+    <button title="ckkck" onclick="$es.router.goto('/page2');">page2</button>
+    <button title="ckkck" onclick="$es.router.goto('page2');">page2 相对</button>
+    <button title="ckkck" onclick="window.history.back();">back</button>
+
+    <div>
+        <script id='rrr' is="es-container"></script>
+    </div>
+</body>
+
+</html>
