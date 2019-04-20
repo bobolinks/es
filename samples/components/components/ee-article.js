@@ -22,11 +22,18 @@ $es.define({
             }
         }
     },
-    render: function (script) {
+    render: function () {
         this.$shadow.innerHTML = eval('(' + '`' + this.template + '`' + ')');
         let el = this.$shadow.children[0];
         if (el) {
             for (const name in this.styles) {
+                if (name == 'default') {
+                    let s = Object.keys(this.styles[name]).map(key => {
+                        return `${key}:${this.styles[name][key]}`;
+                    }).join(';');
+                    if (s) el.style = s;
+                    continue;
+                }
                 for (let i = 0; i < el.children.length; i++) {
                     let e = el.children[i];
                     if (e.tagName.toLowerCase() == name) { //apply style

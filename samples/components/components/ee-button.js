@@ -8,7 +8,6 @@ $es.define({
     events: {
         onclick: function (e) {
             console.log("onclick=", this, e);
-            this.data.title = 'clicked';
         }
     },
     updates: {

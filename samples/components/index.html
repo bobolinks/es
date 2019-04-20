@@ -1,73 +1,54 @@
 <html>
-<script src="../es+.js"></script>
-<script src="ee+/ee-button.js"></script>
-<script src="ee+/ee-label.js"></script>
-<script src="ee+/ee-article.js"></script>
-<script src="comtest.js"></script>
-<script src="default.js"></script>
-<script src="page1.js"></script>
-<script src="page2.js"></script>
-<script>
-    $es.store = new Proxy({ title: 'title[global]' },
-        {
-            get: function (target, key, receiver) {
-                console.log('from store get', {target, key, receiver});
-                return Reflect.get(target, key, receiver);
-            },
-            set: function (target, key, value, receiver) {
-                console.log('from store set', {target, key, value, receiver});
-                return Reflect.set(target, key, value, receiver);
-            }
-        }
-    );
-</script>
+<script src="../../es+.js"></script>
+<script src="components/ee-article.js"></script>
+<script src="components/ee-button.js"></script>
+<script src="components/ee-label.js"></script>
 
-<template id='testtmp'>
+<template id='template1'>
     <span>
-        this is a template A = ${this.data.a}
+        This is a template. Title = [${this.data.title}]
     </span>
-    <script id='ccc' is="es-script" component='comtest'>
-        {
-            data: {
-                c: 700
-            }
-        }
-    </script>
-</template>
-<template id='testtmp1'>
-    <span>
-        this is a span B = ${this.data.b}
-    </span>
-    <script is="es-script" component='#testtmp'>
-        {
-            data: {
-                a: 1
-            }
-        }
-    </script>
 </template>
 
 <body>
-    <div id='app'>bbb </div>
-    <script id="aaa" is="es-script" component='#testtmp1'>
+    <script is="es-script" component='#template1'>
         {
             data: {
-                b: 2
+                title: 'This is the title from this.data.title.'
             }
         }
     </script>
-    <button title="ckkck" onclick="document.getElementById('aaa').setAttribute('component', '#testtmp1');">模版组建</button>
-    <button title="ckkck" onclick="document.getElementById('aaa').setAttribute('component', 'comtest');">js组件</button>
-    <button title="ckkck" onclick="document.getElementById('ccc').$instance.data.article='aaaaaaaaaa';">修改值</button>
-    <button title="ckkck" onclick="document.getElementById('ccc').$instance.data.title2='aasdasdasd';">修改值BTN</button>
-    <button title="ckkck" onclick="$es.router.goto('/page1');">page1</button>
-    <button title="ckkck" onclick="$es.router.goto('/page2');">page2</button>
-    <button title="ckkck" onclick="$es.router.goto('page2');">page2 相对</button>
-    <button title="ckkck" onclick="window.history.back();">back</button>
-
-    <div>
-        <script id='rrr' is="es-container"></script>
-    </div>
+    <script is="es-script" component='ee-button'></script>
+    <script is="es-script" component='ee-button' type="text/es+">
+        {
+            data: {
+                title: 'Event handler!'
+            },
+            events: { 
+                onclick: function (e) { console.log('handled', e); },
+                onmousedown: function  (e) { console.log('handled', e); }
+            }
+        }
+    </script>
+    <script is="es-script" component='ee-label'></script>
+    <script is="es-script" component='ee-article'></script>
+    <script is="es-script" component='ee-article' type="text/es+">
+        { 
+            slots: { 
+                header: '<h1>This is the title.</h1>', 
+                footer: '<p>This is footer.</p>'
+            },
+            styles: {
+                default: {
+                    background: 'lightgray'
+                },
+                footer: {
+                    'font-size': '10',
+                    color: 'gray'
+                }
+            }
+        }
+    </script>
 </body>
 
 </html>

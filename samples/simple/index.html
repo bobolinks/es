@@ -5,14 +5,22 @@
         This is a template. Title = [${this.data.title}]
     </span>
 </template>
+
 <body>
-    <script id="elid" is="es-script" component='#template1'>
+    <script id="elid" is="es-script" component='#template1' type="text/es+">
         {
             data: {
                 title: 'This is the title from this.data.title.'
+            },
+            styles: {
+                default: {
+                    'font-size': '32',
+                    color: 'red'
+                }
             }
         }
     </script>
-    <button onclick="document.getElementById('elid').$instance.data.title='Title from button!';">Change Title</button>
+    <button onclick="$es.it('elid').data.title='Title from button!';">Change Title</button>
 </body>
+
 </html>

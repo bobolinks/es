@@ -25,7 +25,7 @@
 </script>
 <template id='template1'>
     <span>
-        This is a template. Title = [${this.data.title}]
+        This is a template. Title = [${this.data.title}], [Loc]Title = [${this.data.loctitle}]
     </span>
 </template>
 
@@ -40,11 +40,13 @@
                 get title() {
                     console.log('get title = ', window.vars.title);
                     return window.vars.title;
-                }
+                },
+                loctitle: 'This is local var!'
             }
         }
     </script>
-    <button onclick="document.getElementById('elid').$instance.data.title='Title from button!';">Change Title</button>
+    <button onclick="$es.it('elid').data.title='Title from button!';">[Global]Change Title</button>
+    <button onclick="$es.it('elid').data.loctitle='Local title from button!';">[Local]Change Title</button>
 </body>
 
 </html>

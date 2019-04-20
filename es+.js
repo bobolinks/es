@@ -3,44 +3,6 @@
  * @author amos
  */
 
-window.$es = window.$es || {
-    componnents: {},
-    getComponentById: function (id) {
-        return this.componnents[id];
-    },
-    define: function (component) {
-        if (this.componnents[component.id]) {
-            throw `Component[${component.id}] aready exists!`;
-        }
-        this.componnents[component.id] = component;
-    },
-    on(event) {
-        let element = event.srcElement;
-        let name = 'on' + event.type;
-        while (element) {
-            if (element.$script) {
-                break;
-            }
-            element = element.parentNode;
-        }
-        if (!element) {
-            return undefined;
-        }
-
-        let script = element.$script;
-        let handle = script.$instance.events[name];
-        let handled = handle ? handle.bind(script.$instance, event).call() : false;
-        let exName = script.$extend.events[name];
-        if (exName && (script = script.$parent)) {
-            handle = script.$instance.events[exName];
-            if (handle) {
-                handled |= handle.bind(script.$instance, event).call();
-            }
-        }
-
-        return handled;
-    }
-};
 
 Object.merge_es_private = function (dst, ...rest) {
     for (const src of rest) {
@@ -53,11 +15,74 @@ Object.merge_es_private = function (dst, ...rest) {
             dst = isArr ? [] : {};
         }
         for (const key in src) {
-            let e = src[key];
-            dst[key] = typeof e != 'object' ? e : Object.merge_es_private(dst[key] || {}, e);
+            let v = undefined;
+            let hasXetter = false;
+            if ((v = src.__lookupGetter__(key))) {
+                dst.__defineGetter__(key, v);
+                hasXetter = true;
+            }
+            if ((v = src.__lookupSetter__(key))) {
+                dst.__defineSetter__(key, v);
+                hasXetter = true;
+            }
+            if (!hasXetter) {
+                v = src[key];
+                dst[key] = typeof v != 'object' ? v : Object.merge_es_private(dst[key] || {}, v);
+            }
         }
     }
     return dst;
+};
+
+window.$es = window.$es || {
+    componnents: {},
+    getComponentById: function (id) {
+        return this.componnents[id];
+    },
+    define: function (component) {
+        if (this.componnents[component.id]) {
+            throw `Component[${component.id}] aready exists!`;
+        }
+        this.componnents[component.id] = component;
+    },
+    it(element) {
+        if (typeof element == 'string') {
+            element = document.getElementById(element);
+        }
+        if (element.$instance) {
+            return element.$instance;
+        }
+        while (element) {
+            if (element.$script) {
+                break;
+            }
+            element = element.parentNode;
+        }
+        return element ? element.$script.$instance : undefined;
+    },
+    on(event) {
+        let element = event.srcElement;
+        let name = 'on' + event.type;
+        let instance = this.it(element);
+        if (!instance) {
+            return undefined;
+        }
+
+        let handle = instance.events[name];
+        let handled = handle ? handle.bind(instance, event).call() : false;
+        let exNameOrFunc = instance.$extend.events[name];
+        if (typeof exNameOrFunc == 'function') {
+            handled |= exNameOrFunc.bind(instance, event).call();
+        }
+        else if (exNameOrFunc && instance.$script.$parent && (instance = instance.$script.$parent.$instance)) {
+            handle = tinstance.events[exNameOrFunc];
+            if (handle) {
+                handled |= handle.bind(instance, event).call();
+            }
+        }
+
+        return handled;
+    }
 };
 
 class ElemScript extends HTMLScriptElement {
@@ -68,7 +93,7 @@ class ElemScript extends HTMLScriptElement {
     constructor(...args) {
         super(...args);
         this.$children = [];
-        this.setAttribute('type', 'text/e+s');
+        this.setAttribute('type', 'text/es+');
         this.$shadow = document.createElement('div');
         this.$shadow.$script = this;
         setTimeout(() => {
@@ -106,7 +131,7 @@ class ElemScript extends HTMLScriptElement {
         if (this.parentNode) this.parentNode.removeChild(this.$shadow);
     }
 
-    adoptedCallback() {}
+    adoptedCallback() { }
 
     attributeChangedCallback(name, oldValue, newValue) {
         if ('component;'.indexOf(name) >= 0) {
@@ -169,6 +194,7 @@ class ElemScript extends HTMLScriptElement {
         this.$instance = {
             $script: this,
             $shadow: this.$shadow,
+            $extend: this.$extend,
             isMounted: false,
             styles: {},
             render: function () {
@@ -184,12 +210,17 @@ class ElemScript extends HTMLScriptElement {
 
         let src = this.innerHTML.trim();
         if (src) {
-            let extend = eval(`(${src})`);
-            if (!extend) {
-                throw `Illegal script found!`;
+            try {
+                let extend = eval(`(${src})`);
+                if (!extend) {
+                    throw `Illegal script found!`;
+                }
+                Object.merge_es_private(this.$extend, extend);
+                this.innerHTML = '';
             }
-            Object.merge_es_private(this.$extend, extend);
-            this.innerHTML = '';
+            catch(e) {
+                console.warn(e);
+            }
         }
 
         this.$instance = Object.merge_es_private(this.$instance, this.$component, {
@@ -314,7 +345,7 @@ $es.router = {
         if (!/^[0-9a-z_/]+[0-9a-z_]$/i.test(uri)) {
             return undefined;
         }
-        let objPath = `this.routes${uri[0]=='/'?'':'.'}` + uri.split('/').join('.') + '.$';
+        let objPath = `this.routes${uri[0] == '/' ? '' : '.'}` + uri.split('/').join('.') + '.$';
         try {
             return eval(`(${objPath})`);
         } catch (e) {
