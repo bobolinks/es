@@ -3,7 +3,6 @@
  * @author amos
  */
 
-
 Object.merge_es_private = function (dst, ...rest) {
     for (const src of rest) {
         if (typeof dst != 'object' || typeof dst != typeof src) {
@@ -45,39 +44,39 @@ window.$es = window.$es || {
         }
         this.componnents[component.id] = component;
     },
-    it(element) {
+    em(element) {
         if (typeof element == 'string') {
             element = document.getElementById(element);
         }
-        if (element.$instance) {
-            return element.$instance;
-        }
         while (element) {
-            if (element.$script) {
-                break;
+            if (element.$instance) {
+                return element;
             }
             element = element.parentNode;
         }
-        return element ? element.$script.$instance : undefined;
+        return undefined;
+    },
+    it(element) {
+        let e = this.em(element);
+        return e ? e.$instance : undefined;
     },
     on(event) {
-        let element = event.srcElement;
-        let name = 'on' + event.type;
-        let instance = this.it(element);
-        if (!instance) {
+        let em = this.em(event.srcElement);
+        if (!em) {
             return undefined;
         }
-
-        let handle = instance.events[name];
-        let handled = handle ? handle.bind(instance, event).call() : false;
-        let exNameOrFunc = instance.$extend.events[name];
+        let it = em.$instance;
+        let name = 'on' + event.type;
+        let handle = it.events[name];
+        let handled = handle ? handle.bind(it, event).call() : false;
+        let exNameOrFunc = em.$extend.events[name];
         if (typeof exNameOrFunc == 'function') {
-            handled |= exNameOrFunc.bind(instance, event).call();
+            handled |= exNameOrFunc.bind(it, event).call();
         }
-        else if (exNameOrFunc && instance.$script.$parent && (instance = instance.$script.$parent.$instance)) {
-            handle = tinstance.events[exNameOrFunc];
+        else if (exNameOrFunc && em.$parent) {
+            handle = em.$parent.$instance.events[exNameOrFunc];
             if (handle) {
-                handled |= handle.bind(instance, event).call();
+                handled |= handle.bind(em.$parent.$instance, event).call();
             }
         }
 
@@ -85,38 +84,33 @@ window.$es = window.$es || {
     }
 };
 
-class ElemScript extends HTMLScriptElement {
+class ESUseElement extends HTMLElement {
     static get observedAttributes() {
-        return ['id', 'type', 'is', 'component'];
+        return ['component'];
     }
 
-    constructor(...args) {
-        super(...args);
+    constructor() {
+        super();
+        this.$parent = undefined;
         this.$children = [];
-        this.setAttribute('type', 'text/es+');
-        this.$shadow = document.createElement('div');
-        this.$shadow.$script = this;
-        setTimeout(() => {
-            this.reload();
-        }, 0);
+        this.esReset();
     }
 
     connectedCallback() {
-        this.parentNode.appendChild(this.$shadow);
-
         let parNode = this.parentNode;
-        let parScript = undefined;
         while (parNode) {
-            if (parNode.$script) {
-                parScript = parNode.$script;
+            if (parNode.$instance) {
                 break;
             }
             parNode = parNode.parentNode;
         }
-        if (parScript) {
-            this.$parent = parScript;
+        if (parNode) {
+            this.$parent = parNode;
             this.$parent.$children.push(this);
         }
+        setTimeout(() => {
+            this.esReload();
+        }, 0);
     }
 
     disconnectedCallback() {
@@ -128,7 +122,6 @@ class ElemScript extends HTMLScriptElement {
         if (this.$parent) {
             this.$parent.$children.splice(this.$parent.$children.indexOf(this), 1);
         }
-        if (this.parentNode) this.parentNode.removeChild(this.$shadow);
     }
 
     adoptedCallback() { }
@@ -136,7 +129,7 @@ class ElemScript extends HTMLScriptElement {
     attributeChangedCallback(name, oldValue, newValue) {
         if ('component;'.indexOf(name) >= 0) {
             setTimeout(() => {
-                this.reload();
+                this.esReload();
             }, 0);
         }
     }
@@ -156,58 +149,42 @@ class ElemScript extends HTMLScriptElement {
         }
     }
 
-    reshape(compId) {
-        if (this.$instance && this.$instance.isMounted) {
-            if (this.$instance.destroyed) {
-                this.$instance.destroyed.bind(this.$instance, this).call();
-            }
-        }
-        //default value
-        this.$component = {
-            data: {},
-            styles: {},
-            slots: {},
-            events: {},
-            updates: {
-                data: {},
-                styles: {}
-            },
+    esReset() {
+        this.$component = eval("({data: {}, styles: {}, slots: {}, events: {}, updates: { data: {}, styles: {}}})");
+        this.$extend = eval("({data: {}, styles: {}, slots: {}, events: {}, alias: { data: {}, styles: {}}})");
+        this.$instance = {
+            $element: this,
+            isMounted: false,
             render: function () {
-                this.$shadow.innerHTML = eval('(' + '`' + this.template + '`' + ')');
+                this.$element.innerHTML = eval('(' + '`' + this.template + '`' + ')');
                 if (this.styles && this.styles.default) {
-                    this.$shadow.style = Object.keys(this.styles.default).map(key => {
+                    this.$element.style = Object.keys(this.styles.default).map(key => {
                         return `${key}:${this.styles.default[key]}`;
                     }).join(';');
                 }
             }
         };
-        this.$extend = {
-            binding: {
-                data: {},
-                styles: {}
-            },
-            data: {},
-            styles: {},
-            slots: {},
-            events: {}
-        };
-        this.$instance = {
-            $script: this,
-            $shadow: this.$shadow,
-            $extend: this.$extend,
-            isMounted: false,
-            styles: {},
-            render: function () {
-                this.$shadow.innerHTML = '';
+    }
+
+    esReshape(compId) {
+        if (this.$instance && this.$instance.isMounted) {
+            if (this.$instance.destroyed) {
+                this.$instance.destroyed.bind(this.$instance, this).call();
             }
-        };
-        if (!compId) {
-            return false;
         }
 
-        //object constructing
-        this.$component = Object.merge_es_private(this.$component, this.getComponentById(compId));
+        //reset
+        this.esReset();
 
+        //load component
+        if (compId) {
+            Object.merge_es_private(this.$component, this.getComponentById(compId));
+        }
+
+        //load extend
+        if (this.children.length != 0) {
+            throw `Illegal script found!`;
+        }
         let src = this.innerHTML.trim();
         if (src) {
             try {
@@ -216,14 +193,13 @@ class ElemScript extends HTMLScriptElement {
                     throw `Illegal script found!`;
                 }
                 Object.merge_es_private(this.$extend, extend);
-                this.innerHTML = '';
             }
-            catch(e) {
+            catch (e) {
                 console.warn(e);
             }
         }
 
-        this.$instance = Object.merge_es_private(this.$instance, this.$component, {
+        Object.merge_es_private(this.$instance, this.$component, {
             data: this.$extend.data,
             styles: this.$extend.styles,
             slots: this.$extend.slots
@@ -232,11 +208,11 @@ class ElemScript extends HTMLScriptElement {
         //proxies
         for (const kname of ['data', 'styles']) {
             this.$instance[kname] = new Proxy(this.$instance[kname], {
-                script: this,
+                $element: this,
                 get: function (target, key, receiver) {
-                    let bindingKey = this.script.$extend.binding[kname][key];
-                    if (bindingKey && this.script.$parent) {
-                        return this.script.$parent.$instance[kname][bindingKey];
+                    let aliasKey = this.$element.$extend.alias[kname][key];
+                    if (aliasKey && this.$element.$parent) {
+                        return this.$element.$parent.$instance[kname][aliasKey];
                     }
                     return Reflect.get(target, key, receiver);
                 },
@@ -247,15 +223,15 @@ class ElemScript extends HTMLScriptElement {
                         let oldVal = typeof target[key] == 'object' ? Object.merge_es_private({}, target[key]) : target[key];
                         setTimeout(() => {
                             //tries to update first
-                            if (!this.script.update(kname, key, oldVal, value)) {
+                            if (!this.$element.esUpdate(kname, key, oldVal, value)) {
                                 //renders all content
-                                this.script.render();
+                                this.$element.esRender();
                             }
                         }, 0);
                     }
-                    let bindingKey = this.script.$extend.binding[kname][key];
-                    if (bindingKey && this.script.$parent) {
-                        this.script.$parent.$instance[kname][`?${bindingKey}`] = value;
+                    let aliasKey = this.$element.$extend.alias[kname][key];
+                    if (aliasKey && this.$element.$parent) {
+                        this.$element.$parent.$instance[kname][`?${aliasKey}`] = value;
                         return true;
                     }
                     return Reflect.set(target, key, value, receiver);
@@ -270,18 +246,18 @@ class ElemScript extends HTMLScriptElement {
         return true;
     }
 
-    reload() {
+    esReload() {
         let compId = this.getAttribute('component');
         if (!this.$component || !this.$component.id || this.$component.id != compId) {
-            this.reshape(compId);
+            this.esReshape(compId);
         }
 
         this.$instance.render.bind(this.$instance).call();
 
         if (!this.$instance.isMounted) {
             this.$instance.isMounted = true;
-            //binds events
-            let element = this.$shadow.children[0];
+            //binds events to first children
+            let element = this.children[0];
             for (const ename in this.$extend.events) {
                 element.setAttribute(ename, `$es.on(event)`);
             }
@@ -291,7 +267,7 @@ class ElemScript extends HTMLScriptElement {
         }
     }
 
-    update(kname, key, oldVal, value) {
+    esUpdate(kname, key, oldVal, value) {
         let handled = false;
 
         {
@@ -302,16 +278,16 @@ class ElemScript extends HTMLScriptElement {
         }
 
         for (const children of this.$children) {
-            //finds it out from binding info
-            for (const keyChildren in children.$extend.binding[kname]) {
-                let valueChildren = children.$extend.binding[kname][keyChildren];
+            //finds it out from alias info
+            for (const keyChildren in children.$extend.alias[kname]) {
+                let valueChildren = children.$extend.alias[kname][keyChildren];
                 if (valueChildren == key) {
                     //finds it out from updates info
                     let handle = children.$instance.updates[kname][keyChildren];
                     if (handle) {
                         handled |= handle.bind(children.$instance, oldVal, value).call();
                     } else {
-                        children.render();
+                        children.esRender();
                         handled = true;
                     }
                 }
@@ -321,14 +297,12 @@ class ElemScript extends HTMLScriptElement {
         return handled;
     }
 
-    render() {
+    esRender() {
         this.$instance.render.bind(this.$instance).call();
     }
 };
 
-customElements.define('es-script', ElemScript, {
-    extends: 'script'
-});
+customElements.define('es-use', ESUseElement);
 
 //router implementation
 $es.router = {
@@ -411,9 +385,9 @@ $es.router = {
 
 $es.router.urlPrefix = `${location.protocol}//${location.protocol == 'file:' ? location.pathname : (location.host + $es.router.uriBase)}#`;
 
-class ElemRouter extends ElemScript {
-    constructor(...args) {
-        super(...args);
+class EsSlotElement extends ESUseElement {
+    constructor() {
+        super();
     }
 
     connectedCallback() {
@@ -448,7 +422,7 @@ class ElemRouter extends ElemScript {
         return comp;
     }
 
-    reshape(compId) {
+    esReshape(compId) {
         if (this.isTop()) {
             compId = '/';
         } else {
@@ -468,7 +442,7 @@ class ElemRouter extends ElemScript {
                 compId = '/' + names.slice(0, this.depth).join('/');
             }
         }
-        if (super.reshape(compId)) {
+        if (super.esReshape(compId)) {
             window.history.replaceState({
                 key: Date.now().toFixed(3)
             }, '', $es.router.urlPrefix + compId);
@@ -476,6 +450,4 @@ class ElemRouter extends ElemScript {
         }
     }
 };
-customElements.define('es-container', ElemRouter, {
-    extends: 'script'
-});
+customElements.define('es-slot', EsSlotElement);

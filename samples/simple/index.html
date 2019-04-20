@@ -7,7 +7,7 @@
 </template>
 
 <body>
-    <script id="elid" is="es-script" component='#template1' type="text/es+">
+    <es-use id="elid" component='#template1'>
         {
             data: {
                 title: 'This is the title from this.data.title.'
@@ -19,7 +19,7 @@
                 }
             }
         }
-    </script>
+    </es-use>
     <button onclick="$es.it('elid').data.title='Title from button!';">Change Title</button>
 </body>
 

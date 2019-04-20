@@ -30,7 +30,7 @@
 </template>
 
 <body>
-    <script id="elid" is="es-script" type="text/es+" component='#template1'>
+    <es-use id="elid" component='#template1'>
         {
             data: {
                 set title(val) {
@@ -44,7 +44,7 @@
                 loctitle: 'This is local var!'
             }
         }
-    </script>
+    </es-use>
     <button onclick="$es.it('elid').data.title='Title from button!';">[Global]Change Title</button>
     <button onclick="$es.it('elid').data.loctitle='Local title from button!';">[Local]Change Title</button>
 </body>

@@ -11,15 +11,15 @@
 </template>
 
 <body>
-    <script is="es-script" component='#template1'>
+    <es-use component='#template1'>
         {
             data: {
                 title: 'This is the title from this.data.title.'
             }
         }
-    </script>
-    <script is="es-script" component='ee-button'></script>
-    <script is="es-script" component='ee-button' type="text/es+">
+    </es-use>
+    <es-use component='ee-button'></es-use>
+    <es-use component='ee-button' type="text/es+">
         {
             data: {
                 title: 'Event handler!'
@@ -29,14 +29,14 @@
                 onmousedown: function  (e) { console.log('handled', e); }
             }
         }
-    </script>
-    <script is="es-script" component='ee-label'></script>
-    <script is="es-script" component='ee-article'></script>
-    <script is="es-script" component='ee-article' type="text/es+">
+    </es-use>
+    <es-use component='ee-label'></es-use>
+    <es-use component='ee-article'></es-use>
+    <es-use component='ee-article'>
         { 
             slots: { 
-                header: '<h1>This is the title.</h1>', 
-                footer: '<p>This is footer.</p>'
+                header: '&lt;h1>This is the title.&lt;/h1>', 
+                footer: '&lt;p>This is footer.&lt;/p>'
             },
             styles: {
                 default: {
@@ -48,7 +48,7 @@
                 }
             }
         }
-    </script>
+    </es-use>
 </body>
 
 </html>
