@@ -2,7 +2,7 @@ $es.router.define({
     id: '/',
     template: `
     <p><span>This is default page.</span></p>
-    <div style='background:green; padding-top:10px;'>
+    <div style='background:lightgray; padding-top:10px;'>
         <es-slot component='/page1'></es-slot>
     </div>
     `,

@@ -1,26 +1,37 @@
 <html>
 <script src="../../es+.js"></script>
+
 <template id='template1'>
-    <span>
-        This is a template. Title = [${this.data.title}]
-    </span>
+    <span>This is a template.Title = [${this.data.title}]</span>
 </template>
 
 <body>
-    <es-use id="elid" component='#template1'>
-        {
-            data: {
-                title: 'This is the title from this.data.title.'
-            },
-            styles: {
-                default: {
-                    'font-size': '32',
-                    color: 'red'
+    <div style="margin-bottom:20px"><small>Please open the console view to see more details.</small></div>
+    <div>
+        <es-use>
+            <template>
+                <span>This is a template.</span>
+            </template>
+        </es-use>
+    </div>
+    <div>
+        <es-use id="elid" component='#template1'>
+            <script type="text/es-extend">
+                {
+                    data: {
+                        title: 'This is the title from this.data.title.'
+                    },
+                    styles: {
+                        default: {
+                            'font-size': '20',
+                            color: 'orange'
+                        }
+                    }
                 }
-            }
-        }
-    </es-use>
-    <button onclick="$es.it('elid').data.title='Title from button!';">Change Title</button>
+            </script>
+        </es-use>
+    </div>
+    <div><button onclick="$es.it('elid').data.title='Title from button!';">Change Title</button></div>
 </body>
 
 </html>

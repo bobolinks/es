@@ -4,24 +4,24 @@
     window.vars = new Proxy({
         title: 'This is global var title!'
     }, {
-        get: function (target, key, receiver) {
-            console.log('Proxy get', {
-                target,
-                key,
-                receiver
-            });
-            return Reflect.get(target, key, receiver);
-        },
-        set: function (target, key, value, receiver) {
-            console.log('Proxy set', {
-                target,
-                key,
-                value,
-                receiver
-            });
-            return Reflect.set(target, key, value, receiver);
-        }
-    });
+            get: function (target, key, receiver) {
+                console.log('Proxy get', {
+                    target,
+                    key,
+                    receiver
+                });
+                return Reflect.get(target, key, receiver);
+            },
+            set: function (target, key, value, receiver) {
+                console.log('Proxy set', {
+                    target,
+                    key,
+                    value,
+                    receiver
+                });
+                return Reflect.set(target, key, value, receiver);
+            }
+        });
 </script>
 <template id='template1'>
     <span>
@@ -30,21 +30,26 @@
 </template>
 
 <body>
-    <es-use id="elid" component='#template1'>
-        {
-            data: {
-                set title(val) {
-                    console.log('set title = ', val);
-                    window.vars.title = val;
-                },
-                get title() {
-                    console.log('get title = ', window.vars.title);
-                    return window.vars.title;
-                },
-                loctitle: 'This is local var!'
-            }
-        }
-    </es-use>
+    <div style="margin-bottom:20px"><small>Please open the console view to see more details.</small></div>
+    <div>
+        <es-use id="elid" component='#template1'>
+            <script type="text/es-extend">
+                {
+                    data: {
+                        set title(val) {
+                            console.log('set title = ', val);
+                            window.vars.title = val;
+                        },
+                        get title() {
+                            console.log('get title = ', window.vars.title);
+                            return window.vars.title;
+                        },
+                        loctitle: 'This is local var!'
+                    }
+                }
+            </script>
+        </es-use>
+    </div>
     <button onclick="$es.it('elid').data.title='Title from button!';">[Global]Change Title</button>
     <button onclick="$es.it('elid').data.loctitle='Local title from button!';">[Local]Change Title</button>
 </body>

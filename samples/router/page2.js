@@ -8,7 +8,7 @@ $es.router.define({
     },
     styles: {
         default: {
-            background: 'red',
+            background: 'seashell',
             height: 500,
             width: '100%'
         }

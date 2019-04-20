@@ -97,6 +97,7 @@ class ESUseElement extends HTMLElement {
     }
 
     connectedCallback() {
+        console.log(this);
         let parNode = this.parentNode;
         while (parNode) {
             if (parNode.$instance) {
@@ -137,7 +138,21 @@ class ESUseElement extends HTMLElement {
     }
 
     getComponentById(compId) {
-        if (compId[0] == '#') { //is template id
+        if (!compId) {
+            //find it from children
+            for (const e of this.children) {
+                if (e.tagName.toLocaleLowerCase() != 'template') {
+                    continue;
+                }
+                let slotName = e.getAttribute('slot');
+                if (slotName && slotName != 'default') {
+                    continue;
+                }
+                return { id: undefined, template: e.innerHTML };
+            }
+            return { id: undefined, template: '' };
+        }
+        else if (compId[0] == '#') { //is template id
             return {
                 id: compId,
                 template: document.getElementById(compId.substring(1)).innerHTML
@@ -152,7 +167,7 @@ class ESUseElement extends HTMLElement {
     }
 
     esReset() {
-        this.$component = eval("({data: {}, styles: {}, slots: {}, events: {}, updates: { data: {}, styles: {}}})");
+        this.$component = eval("({id:0, data: {}, styles: {}, slots: {}, events: {}, updates: { data: {}, styles: {}}})");
         this.$extend = eval("({data: {}, styles: {}, slots: {}, events: {}, alias: { data: {}, styles: {}}})");
         this.$instance = {
             $element: this,
@@ -180,32 +195,36 @@ class ESUseElement extends HTMLElement {
         this.esReset();
 
         //load component
-        if (compId) {
-            Object.merge_es_private(this.$component, this.getComponentById(compId));
-        }
+        Object.merge_es_private(this.$component, this.getComponentById(compId));
 
-        //load extend
-        if (this.children.length != 0) {
-            throw `Illegal script found!`;
-        }
-        let src = this.innerHTML.trim();
-        if (src) {
-            try {
-                let extend = eval(`(${src})`);
+        let slots = {};
+        let extend = undefined;
+        //load extend and slots
+        for (const e of this.children) {
+            let tagName = e.tagName.toLocaleLowerCase();
+            if (tagName == 'template') {
+                let slotName = e.getAttribute('slot');
+                if (!slotName || slotName == 'default') {
+                    continue;
+                }
+                slots[slotName] = e.innerHTML;
+            }
+            else if (tagName == 'script' && extend == undefined) {
+                extend = eval(`(${e.innerHTML})`);
                 if (!extend) {
                     throw `Illegal script found!`;
                 }
                 Object.merge_es_private(this.$extend, extend);
             }
-            catch (e) {
-                console.warn(e);
+            else {
+                throw `Only template and script can be placed in <es-use> block!`;
             }
         }
 
         Object.merge_es_private(this.$instance, this.$component, {
             data: this.$extend.data,
             styles: this.$extend.styles,
-            slots: this.$extend.slots
+            slots
         });
 
         //proxies
