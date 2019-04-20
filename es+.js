@@ -127,11 +127,13 @@ class ESUseElement extends HTMLElement {
     adoptedCallback() { }
 
     attributeChangedCallback(name, oldValue, newValue) {
-        if ('component;'.indexOf(name) >= 0) {
-            setTimeout(() => {
-                this.esReload();
-            }, 0);
+        if (this.parentNode && oldValue != newValue && 'component;'.indexOf(name) >= 0) {
+            this.esReload();
         }
+    }
+
+    calComponentId() {
+        return this.getAttribute('component');
     }
 
     getComponentById(compId) {
@@ -157,8 +159,9 @@ class ESUseElement extends HTMLElement {
             isMounted: false,
             render: function () {
                 this.$element.innerHTML = eval('(' + '`' + this.template + '`' + ')');
-                if (this.styles && this.styles.default) {
-                    this.$element.style = Object.keys(this.styles.default).map(key => {
+                //apply style to first child
+                if (this.styles && this.styles.default && this.$element.children[0]) {
+                    this.$element.children[0].style = Object.keys(this.styles.default).map(key => {
                         return `${key}:${this.styles.default[key]}`;
                     }).join(';');
                 }
@@ -246,17 +249,20 @@ class ESUseElement extends HTMLElement {
         return true;
     }
 
-    esReload() {
-        let compId = this.getAttribute('component');
-        if (!this.$component || !this.$component.id || this.$component.id != compId) {
+    esReload(force = false) {
+        let compId = this.calComponentId();
+        if (compId != this.$component.id) {
             this.esReshape(compId);
+        }
+        else if (!force) {
+            return;
         }
 
         this.$instance.render.bind(this.$instance).call();
 
         if (!this.$instance.isMounted) {
             this.$instance.isMounted = true;
-            //binds events to first children
+            //binds events to first child
             let element = this.children[0];
             for (const ename in this.$extend.events) {
                 element.setAttribute(ename, `$es.on(event)`);
@@ -357,7 +363,7 @@ $es.router = {
         }
         let i = this.stack.length;
         while (i) {
-            this.stack[--i].reload();
+            this.stack[--i].esReload();
         }
     },
     goto: function (uri) {
@@ -395,8 +401,21 @@ class EsSlotElement extends ESUseElement {
         if (!$es.router.stack.length) {
             window.addEventListener("popstate", $es.router.popstateChanged.bind($es.router));
         }
-        this.depth = $es.router.stack.length;
-        $es.router.stack.push(this);
+        let depth = 0;
+        let par = this.$parent;
+        while (par) {
+            if (par instanceof EsSlotElement) {
+                depth++;
+            }
+            par = par.$parent;
+        }
+        this.$depth = depth;
+        if (depth < $es.router.stack.length) {
+            $es.router.stack.splice(depth);
+        }
+        else {
+            $es.router.stack.push(this);
+        }
     }
 
     disconnectedCallback() {
@@ -414,6 +433,33 @@ class EsSlotElement extends ESUseElement {
         return $es.router.stack[0] == this;
     }
 
+    calComponentId() {
+        let compId = this.getAttribute('component');
+        if (this.isTop()) {
+            compId = '/';
+        } else {
+            if (compId && compId[0] != '/') {
+                throw `Illegal uri[${compId}]!`;
+            }
+            let uriOrg = location.hash;
+            if (uriOrg.length <= $es.router.uriBase.length) {
+                return undefined;
+            }
+            uriOrg = uriOrg.substring($es.router.uriBase.length + 1);
+            if (compId && compId.startsWith(uriOrg)) {
+                uriOrg = compId;
+            }
+            uriOrg = uriOrg.substring(1);
+            let names = uriOrg.split('#')[0].split('?')[0].split('/');
+            if (names.length < this.$depth) {
+                throw `Illegal uri[${uriOrg}]!`;
+            } else {
+                compId = '/' + names.slice(0, this.$depth).join('/');
+            }
+        }
+        return compId;
+    }
+
     getComponentById(compId) {
         let comp = $es.router.fromPath(compId);
         if (!comp) {
@@ -423,25 +469,8 @@ class EsSlotElement extends ESUseElement {
     }
 
     esReshape(compId) {
-        if (this.isTop()) {
-            compId = '/';
-        } else {
-            if (compId[0] != '/') {
-                throw `Illegal uri[${compId}]!`;
-            }
-            //test uri
-            let uriOrg = location.href.substring($es.router.urlPrefix.length);
-            if (compId && compId.startsWith(uriOrg)) {
-                uriOrg = compId;
-            }
-            uriOrg = uriOrg.substring(1);
-            let names = uriOrg.split('#')[0].split('?')[0].split('/');
-            if (names.length < this.depth) {
-                throw `Illegal uri[${uriOrg}]!`;
-            } else {
-                compId = '/' + names.slice(0, this.depth).join('/');
-            }
-        }
+        //clear all children
+        this.innerHTML = '';
         if (super.esReshape(compId)) {
             window.history.replaceState({
                 key: Date.now().toFixed(3)
