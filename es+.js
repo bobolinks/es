@@ -93,11 +93,11 @@ class ESUseElement extends HTMLElement {
         super();
         this.$parent = undefined;
         this.$children = [];
+        this.$connected = false;
         this.esReset();
     }
 
     connectedCallback() {
-        console.log(this);
         let parNode = this.parentNode;
         while (parNode) {
             if (parNode.$instance) {
@@ -109,12 +109,14 @@ class ESUseElement extends HTMLElement {
             this.$parent = parNode;
             this.$parent.$children.push(this);
         }
+        this.$connected = true;
         setTimeout(() => {
             this.esReload();
         }, 0);
     }
 
     disconnectedCallback() {
+        this.$connected = false;
         if (this.$instance && this.$instance.isMounted) {
             if (this.$instance.destroyed) {
                 this.$instance.destroyed.bind(this.$instance, this).call();
@@ -128,7 +130,7 @@ class ESUseElement extends HTMLElement {
     adoptedCallback() { }
 
     attributeChangedCallback(name, oldValue, newValue) {
-        if (this.parentNode && oldValue != newValue && 'component;'.indexOf(name) >= 0) {
+        if (this.$connected && oldValue != newValue && 'component;'.indexOf(name) >= 0) {
             this.esReload();
         }
     }
@@ -387,7 +389,7 @@ $es.router = {
     },
     goto: function (uri) {
         if (uri.startsWith('http:') || uri.startsWith('https:') || uri.startsWith('file:')) { //full url
-            window.location.href = uri;
+            location.href = uri;
         } else {
             let uriCur = location.href.substring($es.router.urlPrefix.length);
             if (uri[0] != '/') { //not abs path
@@ -400,7 +402,7 @@ $es.router = {
             if (uriCur == uri) {
                 return;
             }
-            window.history.pushState({
+            history.pushState({
                 key: Date.now().toFixed(3)
             }, '', $es.router.urlPrefix + uri);
             this.popstateChanged();
@@ -491,7 +493,7 @@ class EsSlotElement extends ESUseElement {
         //clear all children
         this.innerHTML = '';
         if (super.esReshape(compId)) {
-            window.history.replaceState({
+            history.replaceState({
                 key: Date.now().toFixed(3)
             }, '', $es.router.urlPrefix + compId);
             this.setAttribute('component', compId);
