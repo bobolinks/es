@@ -34,6 +34,8 @@ Object.merge_es_private = function (dst, ...rest) {
 };
 
 window.$es = window.$es || {
+    autoIncrement: 0,
+    elements: {},
     componnents: {},
     renderStack: [],
     getComponentById: function (id) {
@@ -51,7 +53,10 @@ window.$es = window.$es || {
         this.componnents[component.id] = Object.freeze(component);
     },
     em(element) {
-        if (typeof element == 'string') {
+        if (typeof element == 'number') {
+            return this.elements[element];
+        }
+        else if (typeof element == 'string') {
             element = document.getElementById(element);
         }
         while (element) {
@@ -100,6 +105,7 @@ class ESUseElement extends HTMLElement {
         this.$parent = undefined;
         this.$children = [];
         this.$connected = false;
+        this.$unique = ++($es.autoIncrement);
         this.esReset();
     }
 
@@ -115,6 +121,7 @@ class ESUseElement extends HTMLElement {
             this.$parent = parNode;
             this.$parent.$children.push(this);
         }
+        $es.elements[this.$unique] = this;
         this.$connected = true;
         setTimeout(() => {
             this.esReload();
@@ -122,6 +129,7 @@ class ESUseElement extends HTMLElement {
     }
 
     disconnectedCallback() {
+        delete $es.elements[this.$unique];
         this.$connected = false;
         if (this.$instance && this.$instance.isMounted) {
             if (this.$instance.destroyed) {
@@ -130,7 +138,11 @@ class ESUseElement extends HTMLElement {
         }
         if (this.$parent) {
             this.$parent.$children.splice(this.$parent.$children.indexOf(this), 1);
+            this.$parent = undefined;
         }
+        this.$component = undefined;
+        this.$extend = undefined;
+        this.$instance = undefined;
     }
 
     adoptedCallback() { }
@@ -177,6 +189,9 @@ class ESUseElement extends HTMLElement {
     esReset() {
         this.$component = eval("({id:0, data: {}, styles: {}, slots: {}, events: {}, updates: { data: {}, styles: {}}})");
         this.$extend = eval("({data: {}, styles: {}, slots: {}, events: {}, alias: { data: {}, styles: {}}})");
+        if (this.$instance) {
+            this.$instance.$element = undefined;
+        }
         this.$instance = {
             $element: this,
             isMounted: false,
@@ -229,6 +244,8 @@ class ESUseElement extends HTMLElement {
             }
         }
 
+        Object.freeze(this.$extend);
+
         Object.merge_es_private(this.$instance, this.$component, {
             data: this.$extend.data,
             styles: this.$extend.styles,
@@ -250,18 +267,21 @@ class ESUseElement extends HTMLElement {
                 else if (!(ms = /^((?:[$_a-z][$_0-9a-z]*\.)*)([$_a-z][$_0-9a-z]*)/i.exec(v))) {
                     throw `Illegal expression '${v}'!`;
                 }
-                let scopePath = `window.${ms[1]}`;
+                let scope = this.$parent ? this.$parent.$instance : undefined;
+                let valuePath = v;
                 if (!ms[1]) {
-                    scopePath = `this.${kname}.`;
+                    valuePath = `this.${kname}.${v}`;
                 }
                 else if (ms[1].startsWith(`${kname}.`)) {
-                    scopePath = `this.${ms[1]}`;
+                    valuePath = `this.${v}`;
                 }
-                else if (ms[1].startsWith(`this.`) || ms[1].startsWith(`window.`)) {
-                    scopePath = `${ms[1]}`;
+                else if (!ms[1].startsWith('this.')) {
+                    scope = window;
                 }
                 obs[key] = {
-                    scope: scopePath.substring(0, scopePath.length - 1), key: ms[2]
+                    scope: scope,
+                    get: eval(`(function(){return ${valuePath}})`),
+                    set: eval(`(function(val){${valuePath}=val;})`)
                 };
             }
 
@@ -269,10 +289,8 @@ class ESUseElement extends HTMLElement {
                 $element: this,
                 get: function (target, key, receiver) {
                     let mapper = this.$element.$extend.alias[kname][key];
-                    if (mapper && this.$element.$parent) {
-                        return (function (src) {
-                            return eval(`(${src})`);
-                        }).bind(this.$element.$parent.$instance, mapper.scope).call()[mapper.key];
+                    if (mapper) {
+                        return mapper.get.bind(mapper.scope).call();
                     }
                     return Reflect.get(target, key, receiver);
                 },
@@ -290,10 +308,8 @@ class ESUseElement extends HTMLElement {
                         }, 0);
                     }
                     let mapper = this.$element.$extend.alias[kname][key];
-                    if (mapper && this.$element.$parent) {
-                        (function (src) {
-                            return eval(`(${src})`);
-                        }).bind(this.$element.$parent.$instance, mapper.scope).call()[`?${mapper.key}`] = value;
+                    if (mapper) {
+                        mapper.set.bind(mapper.scope, value).call();
                         return true;
                     }
                     return Reflect.set(target, key, value, receiver);
@@ -563,3 +579,17 @@ class EsSlotElement extends ESUseElement {
     }
 };
 customElements.define('es-slot', EsSlotElement);
+
+$es.store = function (obj) {
+    return $es.store = new Proxy(obj, {
+        tree: {},
+        get: function (target, key, receiver) {
+            console.log({ target, key, receiver });
+            return Reflect.get(target, key, receiver);
+        },
+        set: function (target, key, value, receiver) {
+            console.log({ target, key, value, receiver });
+            return Reflect.set(target, key, value, receiver);
+        }
+    });
+};
