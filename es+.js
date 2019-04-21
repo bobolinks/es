@@ -42,7 +42,12 @@ window.$es = window.$es || {
         if (this.componnents[component.id]) {
             throw `Component[${component.id}] aready exists!`;
         }
-        this.componnents[component.id] = component;
+        Object.keys(component).forEach(function (key) {
+            if (typeof component[key] == 'object') {
+                Object.freeze(component[key]);
+            }
+        });
+        this.componnents[component.id] = Object.freeze(component);
     },
     em(element) {
         if (typeof element == 'string') {
