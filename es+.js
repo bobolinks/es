@@ -35,6 +35,7 @@ Object.merge_es_private = function (dst, ...rest) {
 
 window.$es = window.$es || {
     componnents: {},
+    renderStack: [],
     getComponentById: function (id) {
         return this.componnents[id];
     },
@@ -236,12 +237,42 @@ class ESUseElement extends HTMLElement {
 
         //proxies
         for (const kname of ['data', 'styles']) {
+            let obs = this.$extend.alias[kname];
+            for (const key in obs) {
+                let v = undefined;
+                let ms = undefined;
+                if (obs.__lookupGetter__(key) || obs.__lookupSetter__(key)) {
+                    throw `Defines seter | getter inside alias.${kname} is not allowed!`;
+                }
+                else if (typeof (v = obs[key]) != 'string') {
+                    throw `Only string is allowed to define inside alias.${kname}!`;
+                }
+                else if (!(ms = /^((?:[$_a-z][$_0-9a-z]*\.)*)([$_a-z][$_0-9a-z]*)/i.exec(v))) {
+                    throw `Illegal expression '${v}'!`;
+                }
+                let scopePath = `window.${ms[1]}`;
+                if (!ms[1]) {
+                    scopePath = `this.${kname}.`;
+                }
+                else if (ms[1].startsWith(`${kname}.`)) {
+                    scopePath = `this.${ms[1]}`;
+                }
+                else if (ms[1].startsWith(`this.`) || ms[1].startsWith(`window.`)) {
+                    scopePath = `${ms[1]}`;
+                }
+                obs[key] = {
+                    scope: scopePath.substring(0, scopePath.length - 1), key: ms[2]
+                };
+            }
+
             this.$instance[kname] = new Proxy(this.$instance[kname], {
                 $element: this,
                 get: function (target, key, receiver) {
-                    let aliasKey = this.$element.$extend.alias[kname][key];
-                    if (aliasKey && this.$element.$parent) {
-                        return this.$element.$parent.$instance[kname][aliasKey];
+                    let mapper = this.$element.$extend.alias[kname][key];
+                    if (mapper && this.$element.$parent) {
+                        return (function (src) {
+                            return eval(`(${src})`);
+                        }).bind(this.$element.$parent.$instance, mapper.scope).call()[mapper.key];
                     }
                     return Reflect.get(target, key, receiver);
                 },
@@ -258,9 +289,11 @@ class ESUseElement extends HTMLElement {
                             }
                         }, 0);
                     }
-                    let aliasKey = this.$element.$extend.alias[kname][key];
-                    if (aliasKey && this.$element.$parent) {
-                        this.$element.$parent.$instance[kname][`?${aliasKey}`] = value;
+                    let mapper = this.$element.$extend.alias[kname][key];
+                    if (mapper && this.$element.$parent) {
+                        (function (src) {
+                            return eval(`(${src})`);
+                        }).bind(this.$element.$parent.$instance, mapper.scope).call()[`?${mapper.key}`] = value;
                         return true;
                     }
                     return Reflect.set(target, key, value, receiver);
@@ -284,7 +317,7 @@ class ESUseElement extends HTMLElement {
             return;
         }
 
-        this.$instance.render.bind(this.$instance).call();
+        this.esRender();
 
         if (!this.$instance.isMounted) {
             this.$instance.isMounted = true;
@@ -305,7 +338,15 @@ class ESUseElement extends HTMLElement {
         {
             let handle = this.$instance.updates[kname][key];
             if (handle) {
-                handled |= handle.bind(this.$instance, oldVal, value).call();
+                $es.renderStack.push(this);
+                try {
+                    handled |= handle.bind(this.$instance, oldVal, value).call();
+                }
+                finally {
+                    if ($es.renderStack.pop() != this) {
+                        console.warn('Es internal error!');
+                    }
+                }
             }
         }
 
@@ -317,7 +358,15 @@ class ESUseElement extends HTMLElement {
                     //finds it out from updates info
                     let handle = children.$instance.updates[kname][keyChildren];
                     if (handle) {
-                        handled |= handle.bind(children.$instance, oldVal, value).call();
+                        $es.renderStack.push(children);
+                        try {
+                            handled |= handle.bind(children.$instance, oldVal, value).call();
+                        }
+                        finally {
+                            if ($es.renderStack.pop() != children) {
+                                console.warn('Es internal error!');
+                            }
+                        }
                     } else {
                         children.esRender();
                         handled = true;
@@ -330,7 +379,15 @@ class ESUseElement extends HTMLElement {
     }
 
     esRender() {
-        this.$instance.render.bind(this.$instance).call();
+        $es.renderStack.push(this);
+        try {
+            this.$instance.render.bind(this.$instance).call();
+        }
+        finally {
+            if ($es.renderStack.pop() != this) {
+                console.warn('Es internal error!');
+            }
+        }
     }
 };
 
