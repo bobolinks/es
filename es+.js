@@ -38,9 +38,6 @@ window.$es = window.$es || {
     elements: {},
     componnents: {},
     renderStack: [],
-    getComponentById: function (id) {
-        return this.componnents[id];
-    },
     define: function (component) {
         if (this.componnents[component.id]) {
             throw `Component[${component.id}] aready exists!`;
@@ -51,6 +48,12 @@ window.$es = window.$es || {
             }
         });
         this.componnents[component.id] = Object.freeze(component);
+    },
+    getComponentById: function (id) {
+        return this.componnents[id];
+    },
+    getCurrentRenderer() {
+        return this.renderStack.length ? this.renderStack[this.renderStack.length - 1] : undefined;
     },
     em(element) {
         if (typeof element == 'number') {
@@ -95,6 +98,50 @@ window.$es = window.$es || {
     }
 };
 
+$es.EsProxy = function (object, type, extend) {
+    return new Proxy(object, {
+        type,
+        extend,
+        watchers: {},
+        get: function (target, key, receiver) {
+            let mapper = this.extend[key];
+            if (mapper) {
+                return mapper.get.bind(mapper.scope).call();
+            }
+            let renderer = $es.getCurrentRenderer();
+            if (renderer) {
+                (this.watchers[key] || (this.watchers[key] = new Set())).add(renderer.$unique);
+            }
+            return Reflect.get(target, key, receiver);
+        },
+        set: function (target, key, value, receiver) {
+            let mapper = this.extend[key];
+            if (mapper) {
+                mapper.set.bind(mapper.scope, value).call();
+                return true;
+            }
+            let rs = Reflect.set(target, key, value, receiver);
+            let watchers = this.watchers[key];
+            if (watchers) {
+                for (const uinid of watchers) {
+                    let element = $es.em(uinid);
+                    if (!element) {
+                        watchers.delete(uinid);
+                    }
+                    else {
+                        //tries to update first
+                        if (!element.esUpdate(this.type, key, value)) {
+                            //renders all content
+                            element.esRender();
+                        }
+                    }
+                }
+            }
+            return rs;
+        },
+    });
+};
+
 class ESUseElement extends HTMLElement {
     static get observedAttributes() {
         return ['component'];
@@ -105,23 +152,25 @@ class ESUseElement extends HTMLElement {
         this.$parent = undefined;
         this.$children = [];
         this.$connected = false;
-        this.$unique = ++($es.autoIncrement);
+        this.$unique = $es.autoIncrement++;
         this.esReset();
     }
 
     connectedCallback() {
+        let names = [`$${this.$unique}`];
         let parNode = this.parentNode;
         while (parNode) {
             if (parNode.$instance) {
-                break;
+                names.push(`$${parNode.$unique}`);
+                if (!this.$parent) {
+                    this.$parent = parNode;
+                    this.$parent.$children.push(this);
+                }
             }
             parNode = parNode.parentNode;
         }
-        if (parNode) {
-            this.$parent = parNode;
-            this.$parent.$children.push(this);
-        }
         $es.elements[this.$unique] = this;
+        this.$path = names.reverse();
         this.$connected = true;
         setTimeout(() => {
             this.esReload();
@@ -285,36 +334,7 @@ class ESUseElement extends HTMLElement {
                 };
             }
 
-            this.$instance[kname] = new Proxy(this.$instance[kname], {
-                $element: this,
-                get: function (target, key, receiver) {
-                    let mapper = this.$element.$extend.alias[kname][key];
-                    if (mapper) {
-                        return mapper.get.bind(mapper.scope).call();
-                    }
-                    return Reflect.get(target, key, receiver);
-                },
-                set: function (target, key, value, receiver) {
-                    if (key[0] == '?') { // is from children ?
-                        key = key.substring(1);
-                    } else {
-                        let oldVal = typeof target[key] == 'object' ? Object.merge_es_private({}, target[key]) : target[key];
-                        setTimeout(() => {
-                            //tries to update first
-                            if (!this.$element.esUpdate(kname, key, oldVal, value)) {
-                                //renders all content
-                                this.$element.esRender();
-                            }
-                        }, 0);
-                    }
-                    let mapper = this.$element.$extend.alias[kname][key];
-                    if (mapper) {
-                        mapper.set.bind(mapper.scope, value).call();
-                        return true;
-                    }
-                    return Reflect.set(target, key, value, receiver);
-                }
-            });
+            this.$instance[kname] = $es.EsProxy(this.$instance[kname], kname, this.$extend.alias[kname] || {});
         }
 
         if (this.$instance.created) {
@@ -348,49 +368,20 @@ class ESUseElement extends HTMLElement {
         }
     }
 
-    esUpdate(kname, key, oldVal, value) {
+    esUpdate(kname, key, value) {
         let handled = false;
-
-        {
-            let handle = this.$instance.updates[kname][key];
-            if (handle) {
-                $es.renderStack.push(this);
-                try {
-                    handled |= handle.bind(this.$instance, oldVal, value).call();
-                }
-                finally {
-                    if ($es.renderStack.pop() != this) {
-                        console.warn('Es internal error!');
-                    }
+        let handle = this.$instance.updates[kname][key];
+        if (handle) {
+            $es.renderStack.push(this);
+            try {
+                handled |= handle.bind(this.$instance, value).call();
+            }
+            finally {
+                if ($es.renderStack.pop() != this) {
+                    console.warn('Es internal error!');
                 }
             }
         }
-
-        for (const children of this.$children) {
-            //finds it out from alias info
-            for (const keyChildren in children.$extend.alias[kname]) {
-                let valueChildren = children.$extend.alias[kname][keyChildren];
-                if (valueChildren == key) {
-                    //finds it out from updates info
-                    let handle = children.$instance.updates[kname][keyChildren];
-                    if (handle) {
-                        $es.renderStack.push(children);
-                        try {
-                            handled |= handle.bind(children.$instance, oldVal, value).call();
-                        }
-                        finally {
-                            if ($es.renderStack.pop() != children) {
-                                console.warn('Es internal error!');
-                            }
-                        }
-                    } else {
-                        children.esRender();
-                        handled = true;
-                    }
-                }
-            }
-        }
-
         return handled;
     }
 
@@ -579,17 +570,3 @@ class EsSlotElement extends ESUseElement {
     }
 };
 customElements.define('es-slot', EsSlotElement);
-
-$es.store = function (obj) {
-    return $es.store = new Proxy(obj, {
-        tree: {},
-        get: function (target, key, receiver) {
-            console.log({ target, key, receiver });
-            return Reflect.get(target, key, receiver);
-        },
-        set: function (target, key, value, receiver) {
-            console.log({ target, key, value, receiver });
-            return Reflect.set(target, key, value, receiver);
-        }
-    });
-};

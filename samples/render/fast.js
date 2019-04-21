@@ -35,7 +35,7 @@ $es.define({
     },
     updates: {
         data: {
-            title(oldVal, newVal) {
+            title(newVal) {
                 this.$element.children[0].children[0].innerHTML = newVal;
                 console.log('title=', {newVal, elapsed:Date.now() - window.tstick});
                 return true;
