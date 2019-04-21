@@ -3,7 +3,7 @@ $es.router.define({
     template: `
     <div>
         <table>
-            <tr algien=center><td colspan=4><strong>How to use alias to binding a variable of component.</strong></td></tr>
+            <tr algien=center><td colspan=4><strong>How to use alias to bind a variable of component.</strong></td></tr>
             <tr>
                 <td><es-use component="ee-button"><script type="text/es-extend">
                 { alias: { data: {title: 'title1'} } }
