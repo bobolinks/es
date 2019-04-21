@@ -3,7 +3,6 @@
  * @author amos
  */
 
-
 Object.merge_es_private = function (dst, ...rest) {
     for (const src of rest) {
         if (typeof dst != 'object' || typeof dst != typeof src) {
@@ -35,49 +34,63 @@ Object.merge_es_private = function (dst, ...rest) {
 };
 
 window.$es = window.$es || {
+    autoIncrement: 0,
+    elements: {},
     componnents: {},
-    getComponentById: function (id) {
-        return this.componnents[id];
-    },
+    renderStack: [],
     define: function (component) {
         if (this.componnents[component.id]) {
             throw `Component[${component.id}] aready exists!`;
         }
-        this.componnents[component.id] = component;
+        Object.keys(component).forEach(function (key) {
+            if (typeof component[key] == 'object') {
+                Object.freeze(component[key]);
+            }
+        });
+        this.componnents[component.id] = Object.freeze(component);
     },
-    it(element) {
-        if (typeof element == 'string') {
+    getComponentById: function (id) {
+        return this.componnents[id];
+    },
+    getCurrentRenderer() {
+        return this.renderStack.length ? this.renderStack[this.renderStack.length - 1] : undefined;
+    },
+    em(element) {
+        if (typeof element == 'number') {
+            return this.elements[element];
+        }
+        else if (typeof element == 'string') {
             element = document.getElementById(element);
         }
-        if (element.$instance) {
-            return element.$instance;
-        }
         while (element) {
-            if (element.$script) {
-                break;
+            if (element.$instance) {
+                return element;
             }
             element = element.parentNode;
         }
-        return element ? element.$script.$instance : undefined;
+        return undefined;
+    },
+    it(element) {
+        let e = this.em(element);
+        return e ? e.$instance : undefined;
     },
     on(event) {
-        let element = event.srcElement;
-        let name = 'on' + event.type;
-        let instance = this.it(element);
-        if (!instance) {
+        let em = this.em(event.srcElement);
+        if (!em) {
             return undefined;
         }
-
-        let handle = instance.events[name];
-        let handled = handle ? handle.bind(instance, event).call() : false;
-        let exNameOrFunc = instance.$extend.events[name];
+        let it = em.$instance;
+        let name = 'on' + event.type;
+        let handle = it.events[name];
+        let handled = handle ? handle.bind(it, event).call() : false;
+        let exNameOrFunc = em.$extend.events[name];
         if (typeof exNameOrFunc == 'function') {
-            handled |= exNameOrFunc.bind(instance, event).call();
+            handled |= exNameOrFunc.bind(it, event).call();
         }
-        else if (exNameOrFunc && instance.$script.$parent && (instance = instance.$script.$parent.$instance)) {
-            handle = tinstance.events[exNameOrFunc];
+        else if (exNameOrFunc && em.$parent) {
+            handle = em.$parent.$instance.events[exNameOrFunc];
             if (handle) {
-                handled |= handle.bind(instance, event).call();
+                handled |= handle.bind(em.$parent.$instance, event).call();
             }
         }
 
@@ -85,41 +98,88 @@ window.$es = window.$es || {
     }
 };
 
-class ElemScript extends HTMLScriptElement {
+$es.EsProxy = function (object, type, extend) {
+    return new Proxy(object, {
+        type,
+        extend,
+        watchers: {},
+        get: function (target, key, receiver) {
+            let mapper = this.extend[key];
+            if (mapper) {
+                return mapper.get.bind(mapper.scope).call();
+            }
+            let renderer = $es.getCurrentRenderer();
+            if (renderer) {
+                (this.watchers[key] || (this.watchers[key] = new Set())).add(renderer.$unique);
+            }
+            return Reflect.get(target, key, receiver);
+        },
+        set: function (target, key, value, receiver) {
+            let mapper = this.extend[key];
+            if (mapper) {
+                mapper.set.bind(mapper.scope, value).call();
+                return true;
+            }
+            let rs = Reflect.set(target, key, value, receiver);
+            let watchers = this.watchers[key];
+            if (watchers) {
+                for (const uinid of watchers) {
+                    let element = $es.em(uinid);
+                    if (!element) {
+                        watchers.delete(uinid);
+                    }
+                    else {
+                        //tries to update first
+                        if (!element.esUpdate(this.type, key, value)) {
+                            //renders all content
+                            element.esRender();
+                        }
+                    }
+                }
+            }
+            return rs;
+        },
+    });
+};
+
+class ESUseElement extends HTMLElement {
     static get observedAttributes() {
-        return ['id', 'type', 'is', 'component'];
+        return ['component'];
     }
 
-    constructor(...args) {
-        super(...args);
+    constructor() {
+        super();
+        this.$parent = undefined;
         this.$children = [];
-        this.setAttribute('type', 'text/es+');
-        this.$shadow = document.createElement('div');
-        this.$shadow.$script = this;
-        setTimeout(() => {
-            this.reload();
-        }, 0);
+        this.$connected = false;
+        this.$unique = $es.autoIncrement++;
+        this.esReset();
     }
 
     connectedCallback() {
-        this.parentNode.appendChild(this.$shadow);
-
+        let names = [`$${this.$unique}`];
         let parNode = this.parentNode;
-        let parScript = undefined;
         while (parNode) {
-            if (parNode.$script) {
-                parScript = parNode.$script;
-                break;
+            if (parNode.$instance) {
+                names.push(`$${parNode.$unique}`);
+                if (!this.$parent) {
+                    this.$parent = parNode;
+                    this.$parent.$children.push(this);
+                }
             }
             parNode = parNode.parentNode;
         }
-        if (parScript) {
-            this.$parent = parScript;
-            this.$parent.$children.push(this);
-        }
+        $es.elements[this.$unique] = this;
+        this.$path = names.reverse();
+        this.$connected = true;
+        setTimeout(() => {
+            this.esReload();
+        }, 0);
     }
 
     disconnectedCallback() {
+        delete $es.elements[this.$unique];
+        this.$connected = false;
         if (this.$instance && this.$instance.isMounted) {
             if (this.$instance.destroyed) {
                 this.$instance.destroyed.bind(this.$instance, this).call();
@@ -127,22 +187,41 @@ class ElemScript extends HTMLScriptElement {
         }
         if (this.$parent) {
             this.$parent.$children.splice(this.$parent.$children.indexOf(this), 1);
+            this.$parent = undefined;
         }
-        if (this.parentNode) this.parentNode.removeChild(this.$shadow);
+        this.$component = undefined;
+        this.$extend = undefined;
+        this.$instance = undefined;
     }
 
     adoptedCallback() { }
 
     attributeChangedCallback(name, oldValue, newValue) {
-        if ('component;'.indexOf(name) >= 0) {
-            setTimeout(() => {
-                this.reload();
-            }, 0);
+        if (this.$connected && oldValue != newValue && 'component;'.indexOf(name) >= 0) {
+            this.esReload();
         }
     }
 
+    calComponentId() {
+        return this.getAttribute('component');
+    }
+
     getComponentById(compId) {
-        if (compId[0] == '#') { //is template id
+        if (!compId) {
+            //find it from children
+            for (const e of this.children) {
+                if (e.tagName.toLocaleLowerCase() != 'template') {
+                    continue;
+                }
+                let slotName = e.getAttribute('slot');
+                if (slotName && slotName != 'default') {
+                    continue;
+                }
+                return { id: undefined, template: e.innerHTML };
+            }
+            return { id: undefined, template: '' };
+        }
+        else if (compId[0] == '#') { //is template id
             return {
                 id: compId,
                 template: document.getElementById(compId.substring(1)).innerHTML
@@ -156,111 +235,106 @@ class ElemScript extends HTMLScriptElement {
         }
     }
 
-    reshape(compId) {
-        if (this.$instance && this.$instance.isMounted) {
-            if (this.$instance.destroyed) {
-                this.$instance.destroyed.bind(this.$instance, this).call();
-            }
+    esReset() {
+        this.$component = eval("({id:0, data: {}, styles: {}, slots: {}, events: {}, updates: { data: {}, styles: {}}})");
+        this.$extend = eval("({data: {}, styles: {}, slots: {}, events: {}, alias: { data: {}, styles: {}}})");
+        if (this.$instance) {
+            this.$instance.$element = undefined;
         }
-        //default value
-        this.$component = {
-            data: {},
-            styles: {},
-            slots: {},
-            events: {},
-            updates: {
-                data: {},
-                styles: {}
-            },
+        this.$instance = {
+            $element: this,
+            isMounted: false,
             render: function () {
-                this.$shadow.innerHTML = eval('(' + '`' + this.template + '`' + ')');
-                if (this.styles && this.styles.default) {
-                    this.$shadow.style = Object.keys(this.styles.default).map(key => {
+                this.$element.innerHTML = eval('(' + '`' + this.template + '`' + ')');
+                //apply style to first child
+                if (this.styles && this.styles.default && this.$element.children[0]) {
+                    this.$element.children[0].style = Object.keys(this.styles.default).map(key => {
                         return `${key}:${this.styles.default[key]}`;
                     }).join(';');
                 }
             }
         };
-        this.$extend = {
-            binding: {
-                data: {},
-                styles: {}
-            },
-            data: {},
-            styles: {},
-            slots: {},
-            events: {}
-        };
-        this.$instance = {
-            $script: this,
-            $shadow: this.$shadow,
-            $extend: this.$extend,
-            isMounted: false,
-            styles: {},
-            render: function () {
-                this.$shadow.innerHTML = '';
+    }
+
+    esReshape(compId) {
+        if (this.$instance && this.$instance.isMounted) {
+            if (this.$instance.destroyed) {
+                this.$instance.destroyed.bind(this.$instance, this).call();
             }
-        };
-        if (!compId) {
-            return false;
         }
 
-        //object constructing
-        this.$component = Object.merge_es_private(this.$component, this.getComponentById(compId));
+        //reset
+        this.esReset();
 
-        let src = this.innerHTML.trim();
-        if (src) {
-            try {
-                let extend = eval(`(${src})`);
+        //load component
+        Object.merge_es_private(this.$component, this.getComponentById(compId));
+
+        let slots = {};
+        let extend = undefined;
+        //load extend and slots
+        for (const e of this.children) {
+            let tagName = e.tagName.toLocaleLowerCase();
+            if (tagName == 'template') {
+                let slotName = e.getAttribute('slot');
+                if (!slotName || slotName == 'default') {
+                    continue;
+                }
+                slots[slotName] = e.innerHTML;
+            }
+            else if (tagName == 'script' && extend == undefined) {
+                extend = eval(`(${e.innerHTML})`);
                 if (!extend) {
                     throw `Illegal script found!`;
                 }
                 Object.merge_es_private(this.$extend, extend);
-                this.innerHTML = '';
             }
-            catch(e) {
-                console.warn(e);
+            else {
+                throw `Only template and script can be placed in <es-use> block!`;
             }
         }
 
-        this.$instance = Object.merge_es_private(this.$instance, this.$component, {
+        Object.freeze(this.$extend);
+
+        Object.merge_es_private(this.$instance, this.$component, {
             data: this.$extend.data,
             styles: this.$extend.styles,
-            slots: this.$extend.slots
+            slots
         });
 
         //proxies
         for (const kname of ['data', 'styles']) {
-            this.$instance[kname] = new Proxy(this.$instance[kname], {
-                script: this,
-                get: function (target, key, receiver) {
-                    let bindingKey = this.script.$extend.binding[kname][key];
-                    if (bindingKey && this.script.$parent) {
-                        return this.script.$parent.$instance[kname][bindingKey];
-                    }
-                    return Reflect.get(target, key, receiver);
-                },
-                set: function (target, key, value, receiver) {
-                    if (key[0] == '?') { // is from children ?
-                        key = key.substring(1);
-                    } else {
-                        let oldVal = typeof target[key] == 'object' ? Object.merge_es_private({}, target[key]) : target[key];
-                        setTimeout(() => {
-                            //tries to update first
-                            if (!this.script.update(kname, key, oldVal, value)) {
-                                //renders all content
-                                this.script.render();
-                            }
-                        }, 0);
-                    }
-                    let bindingKey = this.script.$extend.binding[kname][key];
-                    if (bindingKey && this.script.$parent) {
-                        this.script.$parent.$instance[kname][`?${bindingKey}`] = value;
-                        return true;
-                    }
-                    return Reflect.set(target, key, value, receiver);
+            let obs = this.$extend.alias[kname];
+            for (const key in obs) {
+                let v = undefined;
+                let ms = undefined;
+                if (obs.__lookupGetter__(key) || obs.__lookupSetter__(key)) {
+                    throw `Defines seter | getter inside alias.${kname} is not allowed!`;
                 }
-            });
+                else if (typeof (v = obs[key]) != 'string') {
+                    throw `Only string is allowed to define inside alias.${kname}!`;
+                }
+                else if (!(ms = /^((?:[$_a-z][$_0-9a-z]*\.)*)([$_a-z][$_0-9a-z]*)/i.exec(v))) {
+                    throw `Illegal expression '${v}'!`;
+                }
+                let scope = this.$parent ? this.$parent.$instance : undefined;
+                let valuePath = v;
+                if (!ms[1]) {
+                    valuePath = `this.${kname}.${v}`;
+                }
+                else if (ms[1].startsWith(`${kname}.`)) {
+                    valuePath = `this.${v}`;
+                }
+                else if (!ms[1].startsWith('this.')) {
+                    scope = window;
+                }
+                obs[key] = {
+                    scope: scope,
+                    get: eval(`(function(){return ${valuePath}})`),
+                    set: eval(`(function(val){${valuePath}=val;})`)
+                };
+            }
+
+            this.$instance[kname] = $es.EsProxy(this.$instance[kname], kname, this.$extend.alias[kname] || {});
         }
 
         if (this.$instance.created) {
@@ -270,18 +344,21 @@ class ElemScript extends HTMLScriptElement {
         return true;
     }
 
-    reload() {
-        let compId = this.getAttribute('component');
-        if (!this.$component || !this.$component.id || this.$component.id != compId) {
-            this.reshape(compId);
+    esReload(force = false) {
+        let compId = this.calComponentId();
+        if (compId != this.$component.id) {
+            this.esReshape(compId);
+        }
+        else if (!force) {
+            return;
         }
 
-        this.$instance.render.bind(this.$instance).call();
+        this.esRender();
 
         if (!this.$instance.isMounted) {
             this.$instance.isMounted = true;
-            //binds events
-            let element = this.$shadow.children[0];
+            //binds events to first child
+            let element = this.children[0];
             for (const ename in this.$extend.events) {
                 element.setAttribute(ename, `$es.on(event)`);
             }
@@ -291,44 +368,37 @@ class ElemScript extends HTMLScriptElement {
         }
     }
 
-    update(kname, key, oldVal, value) {
+    esUpdate(kname, key, value) {
         let handled = false;
-
-        {
-            let handle = this.$instance.updates[kname][key];
-            if (handle) {
-                handled |= handle.bind(this.$instance, oldVal, value).call();
+        let handle = this.$instance.updates[kname][key];
+        if (handle) {
+            $es.renderStack.push(this);
+            try {
+                handled |= handle.bind(this.$instance, value).call();
             }
-        }
-
-        for (const children of this.$children) {
-            //finds it out from binding info
-            for (const keyChildren in children.$extend.binding[kname]) {
-                let valueChildren = children.$extend.binding[kname][keyChildren];
-                if (valueChildren == key) {
-                    //finds it out from updates info
-                    let handle = children.$instance.updates[kname][keyChildren];
-                    if (handle) {
-                        handled |= handle.bind(children.$instance, oldVal, value).call();
-                    } else {
-                        children.render();
-                        handled = true;
-                    }
+            finally {
+                if ($es.renderStack.pop() != this) {
+                    console.warn('Es internal error!');
                 }
             }
         }
-
         return handled;
     }
 
-    render() {
-        this.$instance.render.bind(this.$instance).call();
+    esRender() {
+        $es.renderStack.push(this);
+        try {
+            this.$instance.render.bind(this.$instance).call();
+        }
+        finally {
+            if ($es.renderStack.pop() != this) {
+                console.warn('Es internal error!');
+            }
+        }
     }
 };
 
-customElements.define('es-script', ElemScript, {
-    extends: 'script'
-});
+customElements.define('es-use', ESUseElement);
 
 //router implementation
 $es.router = {
@@ -383,12 +453,12 @@ $es.router = {
         }
         let i = this.stack.length;
         while (i) {
-            this.stack[--i].reload();
+            this.stack[--i].esReload();
         }
     },
     goto: function (uri) {
         if (uri.startsWith('http:') || uri.startsWith('https:') || uri.startsWith('file:')) { //full url
-            window.location.href = uri;
+            location.href = uri;
         } else {
             let uriCur = location.href.substring($es.router.urlPrefix.length);
             if (uri[0] != '/') { //not abs path
@@ -401,7 +471,7 @@ $es.router = {
             if (uriCur == uri) {
                 return;
             }
-            window.history.pushState({
+            history.pushState({
                 key: Date.now().toFixed(3)
             }, '', $es.router.urlPrefix + uri);
             this.popstateChanged();
@@ -411,9 +481,9 @@ $es.router = {
 
 $es.router.urlPrefix = `${location.protocol}//${location.protocol == 'file:' ? location.pathname : (location.host + $es.router.uriBase)}#`;
 
-class ElemRouter extends ElemScript {
-    constructor(...args) {
-        super(...args);
+class EsSlotElement extends ESUseElement {
+    constructor() {
+        super();
     }
 
     connectedCallback() {
@@ -421,8 +491,21 @@ class ElemRouter extends ElemScript {
         if (!$es.router.stack.length) {
             window.addEventListener("popstate", $es.router.popstateChanged.bind($es.router));
         }
-        this.depth = $es.router.stack.length;
-        $es.router.stack.push(this);
+        let depth = 0;
+        let par = this.$parent;
+        while (par) {
+            if (par instanceof EsSlotElement) {
+                depth++;
+            }
+            par = par.$parent;
+        }
+        this.$depth = depth;
+        if (depth < $es.router.stack.length) {
+            $es.router.stack.splice(depth);
+        }
+        else {
+            $es.router.stack.push(this);
+        }
     }
 
     disconnectedCallback() {
@@ -440,6 +523,33 @@ class ElemRouter extends ElemScript {
         return $es.router.stack[0] == this;
     }
 
+    calComponentId() {
+        let compId = this.getAttribute('component');
+        if (this.isTop()) {
+            compId = '/';
+        } else {
+            if (compId && compId[0] != '/') {
+                throw `Illegal uri[${compId}]!`;
+            }
+            let uriOrg = location.hash;
+            if (uriOrg.length <= $es.router.uriBase.length) {
+                return undefined;
+            }
+            uriOrg = uriOrg.substring($es.router.uriBase.length + 1);
+            if (compId && compId.startsWith(uriOrg)) {
+                uriOrg = compId;
+            }
+            uriOrg = uriOrg.substring(1);
+            let names = uriOrg.split('#')[0].split('?')[0].split('/');
+            if (names.length < this.$depth) {
+                throw `Illegal uri[${uriOrg}]!`;
+            } else {
+                compId = '/' + names.slice(0, this.$depth).join('/');
+            }
+        }
+        return compId;
+    }
+
     getComponentById(compId) {
         let comp = $es.router.fromPath(compId);
         if (!comp) {
@@ -448,34 +558,15 @@ class ElemRouter extends ElemScript {
         return comp;
     }
 
-    reshape(compId) {
-        if (this.isTop()) {
-            compId = '/';
-        } else {
-            if (compId[0] != '/') {
-                throw `Illegal uri[${compId}]!`;
-            }
-            //test uri
-            let uriOrg = location.href.substring($es.router.urlPrefix.length);
-            if (compId && compId.startsWith(uriOrg)) {
-                uriOrg = compId;
-            }
-            uriOrg = uriOrg.substring(1);
-            let names = uriOrg.split('#')[0].split('?')[0].split('/');
-            if (names.length < this.depth) {
-                throw `Illegal uri[${uriOrg}]!`;
-            } else {
-                compId = '/' + names.slice(0, this.depth).join('/');
-            }
-        }
-        if (super.reshape(compId)) {
-            window.history.replaceState({
+    esReshape(compId) {
+        //clear all children
+        this.innerHTML = '';
+        if (super.esReshape(compId)) {
+            history.replaceState({
                 key: Date.now().toFixed(3)
             }, '', $es.router.urlPrefix + compId);
             this.setAttribute('component', compId);
         }
     }
 };
-customElements.define('es-container', ElemRouter, {
-    extends: 'script'
-});
+customElements.define('es-slot', EsSlotElement);

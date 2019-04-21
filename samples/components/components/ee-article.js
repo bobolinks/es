@@ -14,7 +14,7 @@ $es.define({
     },
     updates: {
         data: {
-            content(oldVal, newVal) {
+            content(newVal) {
                 let e = this.$shadow.children[0];
                 let ec = (e.children.length == 3) ? e.children[1] : e.children[0];
                 ec.innerHTML = newVal;
@@ -23,8 +23,8 @@ $es.define({
         }
     },
     render: function () {
-        this.$shadow.innerHTML = eval('(' + '`' + this.template + '`' + ')');
-        let el = this.$shadow.children[0];
+        this.$element.innerHTML = eval('(' + '`' + this.template + '`' + ')');
+        let el = this.$element.children[0];
         if (el) {
             for (const name in this.styles) {
                 if (name == 'default') {

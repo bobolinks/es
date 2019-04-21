@@ -1,4 +1,5 @@
 <html>
+<title>Es components</title>
 <script src="../../es+.js"></script>
 <script src="components/ee-article.js"></script>
 <script src="components/ee-button.js"></script>
@@ -11,44 +12,60 @@
 </template>
 
 <body>
-    <script is="es-script" component='#template1'>
-        {
-            data: {
-                title: 'This is the title from this.data.title.'
-            }
-        }
-    </script>
-    <script is="es-script" component='ee-button'></script>
-    <script is="es-script" component='ee-button' type="text/es+">
-        {
-            data: {
-                title: 'Event handler!'
-            },
-            events: { 
-                onclick: function (e) { console.log('handled', e); },
-                onmousedown: function  (e) { console.log('handled', e); }
-            }
-        }
-    </script>
-    <script is="es-script" component='ee-label'></script>
-    <script is="es-script" component='ee-article'></script>
-    <script is="es-script" component='ee-article' type="text/es+">
-        { 
-            slots: { 
-                header: '<h1>This is the title.</h1>', 
-                footer: '<p>This is footer.</p>'
-            },
-            styles: {
-                default: {
-                    background: 'lightgray'
-                },
-                footer: {
-                    'font-size': '10',
-                    color: 'gray'
+    <div style="margin-bottom:20px"><small>Please open the console view to see more details.</small></div>
+    <div>
+        <es-use component='#template1'>
+            <script type="text/es-extend">
+            {
+                data: {
+                    title: 'This is the title from this.data.title.'
                 }
             }
-        }
-    </script>
+        </script>
+        </es-use>
+        <br />
+        <es-use component='ee-button'></es-use>
+        <br />
+        <es-use component='ee-button'>
+            <script type="text/es-extend">
+            {
+                data: {
+                    title: 'Event handler!'
+                },
+                events: { 
+                    onclick: function (e) { console.log('handled', e); },
+                    onmousedown: function  (e) { console.log('handled', e); }
+                }
+            }
+        </script>
+        </es-use>
+        <br />
+        <es-use component='ee-label'></es-use>
+        <br />
+        <es-use component='ee-article'></es-use>
+        <br />
+        <es-use component='ee-article'>
+            <script type="text/es-extend">
+            {
+                styles: {
+                    default: {
+                        background: 'lightgray'
+                    },
+                    footer: {
+                        'font-size': '10',
+                        color: 'gray'
+                    }
+                }
+            }
+            </script>
+            <template slot='header'>
+                <h1>This is the title.</h1>
+            </template>
+            <template slot='footer'>
+                <h1>This is footer.</h1>
+            </template>
+        </es-use>
+    </div>
 </body>
 
 </html>

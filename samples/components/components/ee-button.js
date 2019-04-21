@@ -12,7 +12,7 @@ $es.define({
     },
     updates: {
         data: {
-            title(oldVal, newVal) {
+            title(newVal) {
                 this.$shadow.children[0].innerText = newVal;
                 return true;
             }
