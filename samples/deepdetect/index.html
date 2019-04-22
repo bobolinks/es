@@ -1,0 +1,38 @@
+<html>
+<title>Es Detector</title>
+<script src="../../es+.js"></script>
+
+<template id='template1'>
+    <div><span>Enable detector without level limits.</span></div>
+    <div><span>Title = [${this.data.titles[1]}]</span></div>
+    <div><span>Title = [${this.data.sub.title}]</span></div>
+    <div><span>Title = [${this.data.deeply.titles[0]}]</span></div>
+</template>
+
+<body>
+    <div style="margin-bottom:20px"><small>Please open the console view to see more details.</small></div>
+    <div style="background:lightgray">
+        <button onclick="$es.it('elid').data.titles[1]='Changed!'">titles[1]=</button>
+        <button onclick="$es.it('elid').data.sub.title='Changed!'">sub.title=</button>
+        <button onclick="$es.it('elid').data.deeply.titles[0]='Changed!'">deeply.titles[0]=</button>
+        <span>&nbsp;</span>
+        <button onclick="$es.enableDeepDetecting=true; $es.em('elid').esRender();">Enable deep detecting</button>
+    </div>
+    <div>
+        <es-use id="elid" component='#template1'>
+            <script type="text/es-extend">
+                {
+                    data: {
+                        titles: ['--', 'Title in titles[1]'],
+                        sub: { title: 'Title in sub.title' },
+                        deeply: { 
+                            titles: ['Title in deeply.titles[0]']
+                        },
+                    }
+                }
+            </script>
+        </es-use>
+    </div>
+</body>
+
+</html>

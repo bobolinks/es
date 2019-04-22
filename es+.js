@@ -98,20 +98,33 @@ window.$es = window.$es || {
     }
 };
 
-$es.EsProxy = function (object, extend) {
+$es.__isProxy = Symbol("isProxy");
+$es.enableDeepDetecting = false;
+$es.EsProxy = function (object, extend, owner = undefined, path = '') {
     return new Proxy(object, {
+        path,
+        owner,
         extend,
-        watchers: {},
+        watchers: {__proto__:null},
         get: function (target, key, receiver) {
+            if (key === $es.__isProxy)
+                return true;
             let mapper = this.extend[key];
             if (mapper) {
                 return mapper.get.bind(mapper.scope).call();
             }
+            let keyPath = `${this.path?(this.path + '.'):''}${key}`;
             let renderer = $es.getCurrentRenderer();
             if (renderer) {
-                (this.watchers[key] || (this.watchers[key] = new Set())).add(renderer.$unique);
+                watchers = (this.owner || this).watchers;
+                (watchers[keyPath] || (watchers[keyPath] = new Set())).add(renderer.$unique);
             }
-            return Reflect.get(target, key, receiver);
+            let value = Reflect.get(target, key, receiver);
+            if ($es.enableDeepDetecting && typeof value == 'object' && !value[$es.__isProxy]) {
+                value = $es.EsProxy(value, {__proto__:null}, this.owner || this, keyPath);
+                Reflect.set(target, key, value, receiver);
+            }
+            return value;
         },
         set: function (target, key, value, receiver) {
             let mapper = this.extend[key];
@@ -120,16 +133,17 @@ $es.EsProxy = function (object, extend) {
                 return true;
             }
             let rs = Reflect.set(target, key, value, receiver);
-            let watchers = this.watchers[key];
-            if (watchers) {
-                for (const uinid of watchers) {
+            let keyPath = `${this.path?(this.path + '.'):''}${key}`;
+            let watcher = (this.owner || this).watchers[keyPath];
+            if (watcher) {
+                for (const uinid of watcher) {
                     let element = $es.em(uinid);
                     if (!element) {
-                        watchers.delete(uinid);
+                        watcher.delete(uinid);
                     }
                     else {
                         //tries to update first
-                        if (!element.esUpdate(key, value)) {
+                        if (!element.esUpdate(keyPath, value)) {
                             //renders all content
                             element.esRender();
                         }
@@ -236,7 +250,7 @@ class ESUseElement extends HTMLElement {
 
     esReset() {
         this.$component = eval("({id:0, data: {}, styles: {default:{}}, slots: {}, events: {}, accelerator: {}})");
-        this.$extend = eval("({data: {}, styles: {}, slots: {}, events: {}, alias: {}})");
+        this.$extend = eval("({data: {}, styles: {}, slots: {}, events: {}, alias: {__proto__:null}})");
         if (this.$instance) {
             this.$instance.$element = undefined;
         }
