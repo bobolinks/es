@@ -98,9 +98,8 @@ window.$es = window.$es || {
     }
 };
 
-$es.EsProxy = function (object, type, extend) {
+$es.EsProxy = function (object, extend) {
     return new Proxy(object, {
-        type,
         extend,
         watchers: {},
         get: function (target, key, receiver) {
@@ -130,7 +129,7 @@ $es.EsProxy = function (object, type, extend) {
                     }
                     else {
                         //tries to update first
-                        if (!element.esUpdate(this.type, key, value)) {
+                        if (!element.esUpdate(key, value)) {
                             //renders all content
                             element.esRender();
                         }
@@ -236,22 +235,24 @@ class ESUseElement extends HTMLElement {
     }
 
     esReset() {
-        this.$component = eval("({id:0, data: {}, styles: {}, slots: {}, events: {}, updates: { data: {}, styles: {}}})");
-        this.$extend = eval("({data: {}, styles: {}, slots: {}, events: {}, alias: { data: {}, styles: {}}})");
+        this.$component = eval("({id:0, data: {}, styles: {default:{}}, slots: {}, events: {}, accelerator: {}})");
+        this.$extend = eval("({data: {}, styles: {}, slots: {}, events: {}, alias: {}})");
         if (this.$instance) {
             this.$instance.$element = undefined;
         }
         this.$instance = {
             $element: this,
             isMounted: false,
-            render: function () {
-                this.$element.innerHTML = eval('(' + '`' + this.template + '`' + ')');
+            applyStyles: function() {
                 //apply style to first child
                 if (this.styles && this.styles.default && this.$element.children[0]) {
                     this.$element.children[0].style = Object.keys(this.styles.default).map(key => {
                         return `${key}:${this.styles.default[key]}`;
                     }).join(';');
                 }
+            },
+            render: function () {
+                this.$element.innerHTML = eval('(' + '`' + this.template + '`' + ')');
             }
         };
     }
@@ -301,17 +302,16 @@ class ESUseElement extends HTMLElement {
             slots
         });
 
-        //proxies
-        for (const kname of ['data', 'styles']) {
-            let obs = this.$extend.alias[kname];
+        {//proxies
+            let obs = this.$extend.alias;
             for (const key in obs) {
                 let v = undefined;
                 let ms = undefined;
                 if (obs.__lookupGetter__(key) || obs.__lookupSetter__(key)) {
-                    throw `Defines seter | getter inside alias.${kname} is not allowed!`;
+                    throw `Defines seter | getter inside alias is not allowed!`;
                 }
                 else if (typeof (v = obs[key]) != 'string') {
-                    throw `Only string is allowed to define inside alias.${kname}!`;
+                    throw `Only string is allowed to define inside alias!`;
                 }
                 else if (!(ms = /^((?:[$_a-z][$_0-9a-z]*\.)*)([$_a-z][$_0-9a-z]*)/i.exec(v))) {
                     throw `Illegal expression '${v}'!`;
@@ -319,9 +319,9 @@ class ESUseElement extends HTMLElement {
                 let scope = this.$parent ? this.$parent.$instance : undefined;
                 let valuePath = v;
                 if (!ms[1]) {
-                    valuePath = `this.${kname}.${v}`;
+                    valuePath = `this.data.${v}`;
                 }
-                else if (ms[1].startsWith(`${kname}.`)) {
+                else if (ms[1].startsWith(`data.`)) {
                     valuePath = `this.${v}`;
                 }
                 else if (!ms[1].startsWith('this.')) {
@@ -334,7 +334,7 @@ class ESUseElement extends HTMLElement {
                 };
             }
 
-            this.$instance[kname] = $es.EsProxy(this.$instance[kname], kname, this.$extend.alias[kname] || {});
+            this.$instance.data = $es.EsProxy(this.$instance.data, this.$extend.alias || {});
         }
 
         if (this.$instance.created) {
@@ -368,13 +368,12 @@ class ESUseElement extends HTMLElement {
         }
     }
 
-    esUpdate(kname, key, value) {
-        let handled = false;
-        let handle = this.$instance.updates[kname][key];
+    esUpdate(key, value) {
+        let handle = this.$instance.accelerator[key];
         if (handle) {
             $es.renderStack.push(this);
             try {
-                handled |= handle.bind(this.$instance, value).call();
+                return handle.bind(this.$instance, value).call();
             }
             finally {
                 if ($es.renderStack.pop() != this) {
@@ -382,13 +381,18 @@ class ESUseElement extends HTMLElement {
                 }
             }
         }
-        return handled;
+        return false;
+    }
+
+    esApplyStyle(name) {
+        this.$instance.applyStyles.bind(this.$instance, name || 'default').call();
     }
 
     esRender() {
         $es.renderStack.push(this);
         try {
             this.$instance.render.bind(this.$instance).call();
+            this.$instance.applyStyles.bind(this.$instance).call();
         }
         finally {
             if ($es.renderStack.pop() != this) {

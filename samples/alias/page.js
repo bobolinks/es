@@ -5,19 +5,19 @@ $es.define({
         <table>
             <tr>
                 <td><es-use component="ee-button"><script type="text/es-extend">
-                { alias: { data: {title: 'this.data.title1'} } }
+                { alias: { title: 'this.data.title1'} }
                 </script></es-use></td>
 
                 <td><es-use component="ee-button"><script type="text/es-extend">
-                { alias: { data: {title: 'data.title2'}, styles: {default: 'style1'} } }
+                { alias: { title: 'data.title2'} }
                 </script></es-use></td>
 
                 <td><es-use component="ee-button"><script type="text/es-extend">
-                { alias: { data: {title: 'this.data.title3'}, styles: {default: 'styles.style2'} } }
+                { alias: { title: 'this.data.title3'} }
                 </script></es-use></td>
 
                 <td><es-use component="ee-button"><script type="text/es-extend">
-                { alias: { data: {title: 'title4'}, styles: {default: 'this.data.style2'} } }
+                { alias: { title: 'title4'} }
                 </script></es-use></td>
             </tr>
         </table>
@@ -28,13 +28,5 @@ $es.define({
         title2: 'Button 2',
         title3: 'Button 3',
         title4: 'Button 4'
-    },
-    styles: {
-        style1: {
-            background: 'green'
-        },
-        style2: {
-            background: 'blue'
-        }
     }
 });

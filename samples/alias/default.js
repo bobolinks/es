@@ -6,19 +6,19 @@ $es.router.define({
             <tr algien=center><td colspan=4><strong>How to use alias to bind a variable of component.</strong></td></tr>
             <tr>
                 <td><es-use component="ee-button"><script type="text/es-extend">
-                { alias: { data: {title: 'title1'} } }
+                { alias: { title: 'title1' } }
                 </script></es-use></td>
 
                 <td><es-use component="ee-button"><script type="text/es-extend">
-                { alias: { data: {title: 'title2'}, styles: {default: 'style1'} } }
+                { alias: { title: 'title2' } }
                 </script></es-use></td>
 
                 <td><es-use component="ee-button"><script type="text/es-extend">
-                { alias: { data: {title: 'title3'}, styles: {default: 'style2'} } }
+                { alias: { title: 'title3'} }
                 </script></es-use></td>
 
                 <td><es-use component="ee-button"><script type="text/es-extend">
-                { alias: { data: {title: 'title4'}, styles: {default: 'style2'} } }
+                { alias: { title: 'title4'} }
                 </script></es-use></td>
             </tr>
         </table>
@@ -26,14 +26,9 @@ $es.router.define({
             <script type="text/es-extend">
                 { 
                     alias: { 
-                        data: {
-                            title2: 'title5_2',
-                            title3: 'title5_3',
-                            title4: 'title5_4',
-                        },
-                        styles: {
-                            style2: 'style3'
-                        }
+                        title2: 'title5_2',
+                        title3: 'title5_3',
+                        title4: 'title5_4',
                     } 
                 }
             </script>
@@ -48,16 +43,5 @@ $es.router.define({
         title5_2: 'Button 5',
         title5_3: 'Button 6',
         title5_4: 'Button 7'
-    },
-    styles: {
-        style1: {
-            background: 'green'
-        },
-        style2: {
-            background: 'blue'
-        },
-        style3: {
-            background: 'yellow'
-        }
     }
 });

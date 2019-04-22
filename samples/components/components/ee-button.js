@@ -10,12 +10,10 @@ $es.define({
             console.log("onclick=", this, e);
         }
     },
-    updates: {
-        data: {
-            title(newVal) {
-                this.$shadow.children[0].innerText = newVal;
-                return true;
-            }
+    accelerator: {
+        title(newVal) {
+            this.$shadow.children[0].innerText = newVal;
+            return true;
         }
     }
 });

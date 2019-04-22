@@ -33,13 +33,11 @@ $es.define({
             width: '100%'
         }
     },
-    updates: {
-        data: {
-            title(newVal) {
-                this.$element.children[0].children[0].innerHTML = newVal;
-                console.log('title=', {newVal, elapsed:Date.now() - window.tstick});
-                return true;
-            }
+    accelerator: {
+        title(newVal) {
+            this.$element.children[0].children[0].innerHTML = newVal;
+            console.log('title=', {newVal, elapsed:Date.now() - window.tstick});
+            return true;
         }
     }
 });

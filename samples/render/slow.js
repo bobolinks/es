@@ -36,13 +36,6 @@ $es.define({
     render: function() {
         //default render code from es
         this.$element.innerHTML = eval('(' + '`' + this.template + '`' + ')');
-        //apply style to first child
-        if (this.styles && this.styles.default && this.$element.children[0]) {
-            this.$element.children[0].style = Object.keys(this.styles.default).map(key => {
-                return `${key}:${this.styles.default[key]}`;
-            }).join(';');
-        }
-
         console.log('title=', {elapsed:Date.now() - window.tstick});
     }
 });

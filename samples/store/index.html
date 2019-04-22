@@ -5,9 +5,7 @@
     $es.store = {
         data: $es.EsProxy({
             title: 'Title stored in [$es.store]'
-        }, 'data', {}),
-        styles: $es.EsProxy({
-        }, 'styles', {}),
+        }, {})
     };
     window.vars = {
         title: 'Title stored in [window.vars]'
@@ -37,7 +35,7 @@
                         },
                     },
                     alias: {
-                        data: {title3: '$es.store.data.title'}
+                        title3: '$es.store.data.title'
                     }
                 }
             </script>
