@@ -12,7 +12,7 @@ $es.define({
     },
     accelerator: {
         title(newVal) {
-            this.$shadow.children[0].innerText = newVal;
+            this.$element.children[0].innerText = newVal;
             return true;
         }
     }

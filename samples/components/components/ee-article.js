@@ -14,7 +14,7 @@ $es.define({
     },
     accelerator: {
         content(newVal) {
-            let e = this.$shadow.children[0];
+            let e = this.$element.children[0];
             let ec = (e.children.length == 3) ? e.children[1] : e.children[0];
             ec.innerHTML = newVal;
             return true;
