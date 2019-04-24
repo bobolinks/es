@@ -132,6 +132,9 @@ $es.EsProxy = function (object, extend, owner = undefined, path = '') {
         get: function (target, key, receiver) {
             if (key === isEsProxy)
                 return true;
+            else if (!target.hasOwnProperty(key)) {
+                return Reflect.get(target, key, receiver);
+            }
             let mapper = this.extend[key];
             if (mapper) {
                 return mapper.get.bind(mapper.scope).call();
