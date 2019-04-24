@@ -295,6 +295,13 @@ class ESUseElement extends HTMLElement {
             __proto__:null,
             $element: this,
             isMounted: false,
+            applyEvents: function() {
+                //binds events to first child
+                let element = this.$element.children[0];
+                for (const ename in this.$element.$extend.events) {
+                    element.setAttribute(ename, `$es.on(event)`);
+                }
+            },
             applyStyles: function() {
                 //apply style to first child
                 if (this.styles && this.styles.default && this.$element.children[0]) {
@@ -420,11 +427,6 @@ class ESUseElement extends HTMLElement {
 
         if (!this.$instance.isMounted) {
             this.$instance.isMounted = true;
-            //binds events to first child
-            let element = this.children[0];
-            for (const ename in this.$extend.events) {
-                element.setAttribute(ename, `$es.on(event)`);
-            }
             if (this.$instance.mounted) {
                 this.$instance.mounted.bind(this.$instance, this).call();
             }
@@ -457,6 +459,7 @@ class ESUseElement extends HTMLElement {
         try {
             this.$instance.render.bind(this.$instance).call();
             this.$instance.applyStyles.bind(this.$instance).call();
+            this.$instance.applyEvents.bind(this.$instance).call();
         }
         finally {
             if ($es.renderStack.pop() != this) {
