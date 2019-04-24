@@ -146,7 +146,7 @@ $es.EsProxy = function (object, extend, owner = undefined, path = '') {
                 (watchers[keyPath] || (watchers[keyPath] = new Set())).add(renderer.$unique);
             }
             let value = Reflect.get(target, key, receiver);
-            if ($es.enableDeepDetecting && typeof value == 'object' && !value[isEsProxy]) {
+            if ($es.enableDeepDetecting && typeof value == 'object' && ([Object,Array,Map,Set].indexOf(value.__proto__.constructor) >= 0) && !value[isEsProxy]) {
                 value = $es.EsProxy(value, {__proto__:null}, this.owner || this, keyPath);
                 Reflect.set(target, key, value, receiver);
             }
@@ -308,9 +308,10 @@ class ESUseElement extends HTMLElement {
             applyStyles: function() {
                 //apply style to first child
                 if (this.styles && this.styles.default && this.$element.children[0]) {
-                    this.$element.children[0].style = Object.keys(this.styles.default).map(key => {
+                    let s = Object.keys(this.styles.default).map(key => {
                         return `${key}:${this.styles.default[key]}`;
                     }).join(';');
+                    if (s) this.$element.children[0].style = s;
                 }
             },
             render: function () {
@@ -614,11 +615,19 @@ class EsSlotElement extends ESUseElement {
                 uriOrg = compId;
             }
             uriOrg = uriOrg.substring(1);
+            let isQ = false;
+            let tail = uriOrg.split('#')[1] || (isQ = true, uriOrg.split('?')[1]);
             let names = uriOrg.split('#')[0].split('?')[0].split('/');
             if (names.length < this.$depth) {
                 throw `Illegal uri[${uriOrg}]!`;
             } else {
                 compId = '/' + names.slice(0, this.$depth).join('/');
+                if (tail) {
+                    this.$uriQuery = isQ ? '?' + tail : '#' + tail;
+                }
+                else {
+                    this.$uriQuery = undefined;
+                }
             }
         }
         return compId;
@@ -638,7 +647,7 @@ class EsSlotElement extends ESUseElement {
         if (super.esReshape(compId)) {
             history.replaceState({
                 key: Date.now().toFixed(3)
-            }, '', $es.router.urlPrefix + compId);
+            }, '', $es.router.urlPrefix + compId + (this.$uriQuery||''));
             this.setAttribute('component', compId);
         }
     }
