@@ -1,7 +1,31 @@
 /**
- * @since 20180227 18:31
- * @author amos
+MIT License
+
+Copyright (c) 2019 bobolinks
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+ * @since 20190418 18:31
+ * @author bobolinks
  */
+
+window.isEsProxy = Symbol("isEsProxy");
+window.isEsProps = Symbol("isEsProps");
 
 Object.merge_es_private = function (dst, ...rest) {
     for (const src of rest) {
@@ -47,7 +71,7 @@ window.$es = window.$es || {
                 Object.freeze(component[key]);
             }
         });
-        this.componnents[component.id] = Object.freeze(component);
+        return this.componnents[component.id] = Object.freeze(component);
     },
     getComponentById: function (id) {
         return this.componnents[id];
@@ -98,16 +122,15 @@ window.$es = window.$es || {
     }
 };
 
-$es.__isProxy = Symbol("isProxy");
 $es.enableDeepDetecting = false;
 $es.EsProxy = function (object, extend, owner = undefined, path = '') {
     return new Proxy(object, {
         path,
         owner,
-        extend,
+        extend: extend || {__proto__:null},
         watchers: {__proto__:null},
         get: function (target, key, receiver) {
-            if (key === $es.__isProxy)
+            if (key === isEsProxy)
                 return true;
             let mapper = this.extend[key];
             if (mapper) {
@@ -120,7 +143,7 @@ $es.EsProxy = function (object, extend, owner = undefined, path = '') {
                 (watchers[keyPath] || (watchers[keyPath] = new Set())).add(renderer.$unique);
             }
             let value = Reflect.get(target, key, receiver);
-            if ($es.enableDeepDetecting && typeof value == 'object' && !value[$es.__isProxy]) {
+            if ($es.enableDeepDetecting && typeof value == 'object' && !value[isEsProxy]) {
                 value = $es.EsProxy(value, {__proto__:null}, this.owner || this, keyPath);
                 Reflect.set(target, key, value, receiver);
             }
@@ -163,48 +186,52 @@ class ESUseElement extends HTMLElement {
     constructor() {
         super();
         this.$parent = undefined;
-        this.$children = [];
+        this.$children = new Set();
         this.$connected = false;
+        this.$floating = false;
         this.$unique = $es.autoIncrement++;
         this.esReset();
     }
 
     connectedCallback() {
-        let names = [`$${this.$unique}`];
         let parNode = this.parentNode;
         while (parNode) {
             if (parNode.$instance) {
-                names.push(`$${parNode.$unique}`);
-                if (!this.$parent) {
-                    this.$parent = parNode;
-                    this.$parent.$children.push(this);
-                }
+                break;
             }
             parNode = parNode.parentNode;
         }
-        $es.elements[this.$unique] = this;
-        this.$path = names.reverse();
+        this.$parent = parNode;
+        if (this.$parent) {
+            this.$parent.$children.add(this);
+        }
+
         this.$connected = true;
-        setTimeout(() => {
-            this.esReload();
-        }, 0);
+        if (!this.$floating) {
+            $es.elements[this.$unique] = this;
+            setTimeout(() => {
+                this.esReload();
+            }, 0);
+        }
     }
 
     disconnectedCallback() {
-        delete $es.elements[this.$unique];
-        this.$connected = false;
-        if (this.$instance && this.$instance.isMounted) {
-            if (this.$instance.destroyed) {
-                this.$instance.destroyed.bind(this.$instance, this).call();
+        if (!this.$floating) {
+            delete $es.elements[this.$unique];
+            if (this.$instance && this.$instance.isMounted) {
+                if (this.$instance.destroyed) {
+                    this.$instance.destroyed.bind(this.$instance, this).call();
+                }
             }
+            this.$component = undefined;
+            this.$extend = undefined;
+            this.$instance = undefined;
         }
+        this.$connected = false;
         if (this.$parent) {
-            this.$parent.$children.splice(this.$parent.$children.indexOf(this), 1);
+            this.$parent.$children.delete(this);
             this.$parent = undefined;
         }
-        this.$component = undefined;
-        this.$extend = undefined;
-        this.$instance = undefined;
     }
 
     adoptedCallback() { }
@@ -248,6 +275,16 @@ class ESUseElement extends HTMLElement {
         }
     }
 
+    esTransfer(target) {
+        if (!target || this.$floating) {
+            throw 'Illegal target or state!';
+        }
+        this.$floating = true;
+        this.parentNode.removeChild(this);
+        target.appendChild(this);
+        this.$floating = false;
+    }
+
     esReset() {
         this.$component = eval("({id:0, data: {}, styles: {default:{}}, slots: {}, events: {}, accelerator: {}})");
         this.$extend = eval("({data: {}, styles: {}, slots: {}, events: {}, alias: {__proto__:null}})");
@@ -255,6 +292,7 @@ class ESUseElement extends HTMLElement {
             this.$instance.$element = undefined;
         }
         this.$instance = {
+            __proto__:null,
             $element: this,
             isMounted: false,
             applyStyles: function() {
@@ -316,12 +354,23 @@ class ESUseElement extends HTMLElement {
             slots
         });
 
+        for (const scope of ['data', 'styles', 'slots', 'events']) {
+            for (const key in this.$instance[scope]) {
+                if (!this.$instance[scope]) continue;
+                let value = this.$instance[scope][key];
+                if (typeof value != 'object') continue;
+                if (value[isEsProps]) {
+                    this.$instance[scope][key] = value.default;
+                }
+            }
+        }
+
         {//proxies
             let obs = this.$extend.alias;
             for (const key in obs) {
                 let v = undefined;
                 let ms = undefined;
-                if (obs.__lookupGetter__(key) || obs.__lookupSetter__(key)) {
+                if ((obs.__lookupGetter__ && obs.__lookupGetter__(key)) || (obs.__lookupSetter__ && obs.__lookupSetter__(key))) {
                     throw `Defines seter | getter inside alias is not allowed!`;
                 }
                 else if (typeof (v = obs[key]) != 'string') {
@@ -382,12 +431,13 @@ class ESUseElement extends HTMLElement {
         }
     }
 
-    esUpdate(key, value) {
+    esUpdate(keyPath, value) {
+        let key = keyPath.split('.')[0];
         let handle = this.$instance.accelerator[key];
         if (handle) {
             $es.renderStack.push(this);
             try {
-                return handle.bind(this.$instance, value).call();
+                return handle.bind(this.$instance, value, keyPath).call(), true;
             }
             finally {
                 if ($es.renderStack.pop() != this) {
