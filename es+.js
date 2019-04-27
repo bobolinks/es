@@ -447,6 +447,9 @@ class ESUseElement extends HTMLElement {
                 } else if (!ms[1].startsWith('this.')) {
                     scope = window;
                 }
+                if (!this.$instance.data.hasOwnProperty(key)) {
+                    this.$instance.data[key] = undefined;
+                }
                 obs[key] = {
                     scope: scope,
                     get: eval(`(function(){return ${valuePath}})`),
