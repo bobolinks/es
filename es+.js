@@ -1,9 +1,35 @@
 /**
- * @since 20180227 18:31
- * @author amos
+MIT License
+
+Copyright (c) 2019 bobolinks
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+ * @since 20190418 18:31
+ * @author bobolinks
  */
 
-Object.merge_es_private = function (dst, ...rest) {
+window.isEsData = Symbol("isEsData");
+window.isEsProps = Symbol("isEsProps");
+window.EsAddListener = Symbol("EsAddListener");
+window.EsRemoveListener = Symbol("EsRemoveListener");
+
+Object.merge_es_private = function(dst, ...rest) {
     for (const src of rest) {
         if (typeof dst != 'object' || typeof dst != typeof src) {
             dst = src;
@@ -38,18 +64,18 @@ window.$es = window.$es || {
     elements: {},
     componnents: {},
     renderStack: [],
-    define: function (component) {
+    define: function(component) {
         if (this.componnents[component.id]) {
             throw `Component[${component.id}] aready exists!`;
         }
-        Object.keys(component).forEach(function (key) {
+        Object.keys(component).forEach(function(key) {
             if (typeof component[key] == 'object') {
                 Object.freeze(component[key]);
             }
         });
-        this.componnents[component.id] = Object.freeze(component);
+        return this.componnents[component.id] = Object.freeze(component);
     },
-    getComponentById: function (id) {
+    getComponentById: function(id) {
         return this.componnents[id];
     },
     getCurrentRenderer() {
@@ -58,8 +84,7 @@ window.$es = window.$es || {
     em(element) {
         if (typeof element == 'number') {
             return this.elements[element];
-        }
-        else if (typeof element == 'string') {
+        } else if (typeof element == 'string') {
             element = document.getElementById(element);
         }
         while (element) {
@@ -86,8 +111,7 @@ window.$es = window.$es || {
         let exNameOrFunc = em.$extend.events[name];
         if (typeof exNameOrFunc == 'function') {
             handled |= exNameOrFunc.bind(it, event).call();
-        }
-        else if (exNameOrFunc && em.$parent) {
+        } else if (exNameOrFunc && em.$parent) {
             handle = em.$parent.$instance.events[exNameOrFunc];
             if (handle) {
                 handled |= handle.bind(em.$parent.$instance, event).call();
@@ -98,17 +122,19 @@ window.$es = window.$es || {
     }
 };
 
-$es.__isProxy = Symbol("isProxy");
-$es.enableDeepDetecting = false;
-$es.EsProxy = function (object, extend, owner = undefined, path = '') {
+$es.EsData = function(object, options = {}) {
     return new Proxy(object, {
-        path,
-        owner,
-        extend,
-        watchers: {__proto__:null},
-        get: function (target, key, receiver) {
-            if (key === $es.__isProxy)
+        deepInspect: options.deepInspect || false,
+        path: options.path || '',
+        owner: options.owner || undefined,
+        extend: options.extend || { __proto__: null },
+        watchers: { __proto__: null },
+        get: function(target, key, receiver) {
+            if (key === isEsData)
                 return true;
+            else if (!target.hasOwnProperty(key)) {
+                return Reflect.get(target, key, receiver);
+            }
             let mapper = this.extend[key];
             if (mapper) {
                 return mapper.get.bind(mapper.scope).call();
@@ -120,13 +146,28 @@ $es.EsProxy = function (object, extend, owner = undefined, path = '') {
                 (watchers[keyPath] || (watchers[keyPath] = new Set())).add(renderer.$unique);
             }
             let value = Reflect.get(target, key, receiver);
-            if ($es.enableDeepDetecting && typeof value == 'object' && !value[$es.__isProxy]) {
-                value = $es.EsProxy(value, {__proto__:null}, this.owner || this, keyPath);
+            if (this.deepInspect && typeof value == 'object' && ([Object, Array, Map, Set].indexOf(value.__proto__.constructor) >= 0) && !value[isEsData]) {
+                value = $es.EsData(value, { deepInspect: this.deepInspect, path: keyPath, owner: this.owner || this });
                 Reflect.set(target, key, value, receiver);
             }
             return value;
         },
-        set: function (target, key, value, receiver) {
+        set: function(target, key, value, receiver) {
+            if (key === EsAddListener) {
+                let keyPath = value['path'];
+                if (keyPath && value['id']) {
+                    watchers = (this.owner || this).watchers;
+                    (watchers[keyPath] || (watchers[keyPath] = new Set())).add(value['id']);
+                }
+                return true;
+            } else if (key === EsRemoveListener) {
+                let keyPath = value['path'];
+                let watcher = (this.owner || this).watchers[keyPath];
+                if (watcher) {
+                    watcher.delete(value['id']);
+                }
+                return true;
+            }
             let mapper = this.extend[key];
             if (mapper) {
                 mapper.set.bind(mapper.scope, value).call();
@@ -140,8 +181,7 @@ $es.EsProxy = function (object, extend, owner = undefined, path = '') {
                     let element = $es.em(uinid);
                     if (!element) {
                         watcher.delete(uinid);
-                    }
-                    else {
+                    } else {
                         //tries to update first
                         if (!element.esUpdate(keyPath, value)) {
                             //renders all content
@@ -149,6 +189,33 @@ $es.EsProxy = function (object, extend, owner = undefined, path = '') {
                         }
                     }
                 }
+            }
+            return rs;
+        },
+        deleteProperty(target, key) {
+            let mapper = this.extend[key];
+            if (mapper) {
+                mapper.delete.bind(mapper.scope).call();
+                return true;
+            }
+            let rs = Reflect.deleteProperty(target, key);
+            let keyPath = `${this.path?(this.path + '.'):''}${key}`;
+            let watcher = (this.owner || this).watchers[keyPath];
+            if (watcher) {
+                for (const uinid of watcher) {
+                    let element = $es.em(uinid);
+                    if (!element) {
+                        watcher.delete(uinid);
+                    } else {
+                        //tries to update first
+                        if (!element.esUpdate(keyPath, value)) {
+                            //renders all content
+                            element.esRender();
+                        }
+                    }
+                }
+                //clear up watchers
+                (this.owner || this).watchers[keyPath] = new Set();
             }
             return rs;
         },
@@ -163,51 +230,55 @@ class ESUseElement extends HTMLElement {
     constructor() {
         super();
         this.$parent = undefined;
-        this.$children = [];
+        this.$children = new Set();
         this.$connected = false;
+        this.$floating = false;
         this.$unique = $es.autoIncrement++;
         this.esReset();
     }
 
     connectedCallback() {
-        let names = [`$${this.$unique}`];
         let parNode = this.parentNode;
         while (parNode) {
             if (parNode.$instance) {
-                names.push(`$${parNode.$unique}`);
-                if (!this.$parent) {
-                    this.$parent = parNode;
-                    this.$parent.$children.push(this);
-                }
+                break;
             }
             parNode = parNode.parentNode;
         }
-        $es.elements[this.$unique] = this;
-        this.$path = names.reverse();
+        this.$parent = parNode;
+        if (this.$parent) {
+            this.$parent.$children.add(this);
+        }
+
         this.$connected = true;
-        setTimeout(() => {
-            this.esReload();
-        }, 0);
+        if (!this.$floating) {
+            $es.elements[this.$unique] = this;
+            setTimeout(() => {
+                this.esReload();
+            }, 0);
+        }
     }
 
     disconnectedCallback() {
-        delete $es.elements[this.$unique];
-        this.$connected = false;
-        if (this.$instance && this.$instance.isMounted) {
-            if (this.$instance.destroyed) {
-                this.$instance.destroyed.bind(this.$instance, this).call();
+        if (!this.$floating) {
+            delete $es.elements[this.$unique];
+            if (this.$instance && this.$instance.isMounted) {
+                if (this.$instance.destroyed) {
+                    this.$instance.destroyed.bind(this.$instance, this).call();
+                }
             }
+            this.$component = undefined;
+            this.$extend = undefined;
+            this.$instance = undefined;
         }
+        this.$connected = false;
         if (this.$parent) {
-            this.$parent.$children.splice(this.$parent.$children.indexOf(this), 1);
+            this.$parent.$children.delete(this);
             this.$parent = undefined;
         }
-        this.$component = undefined;
-        this.$extend = undefined;
-        this.$instance = undefined;
     }
 
-    adoptedCallback() { }
+    adoptedCallback() {}
 
     attributeChangedCallback(name, oldValue, newValue) {
         if (this.$connected && oldValue != newValue && 'component;'.indexOf(name) >= 0) {
@@ -233,8 +304,7 @@ class ESUseElement extends HTMLElement {
                 return { id: undefined, template: e.innerHTML };
             }
             return { id: undefined, template: '' };
-        }
-        else if (compId[0] == '#') { //is template id
+        } else if (compId[0] == '#') { //is template id
             return {
                 id: compId,
                 template: document.getElementById(compId.substring(1)).innerHTML
@@ -248,24 +318,44 @@ class ESUseElement extends HTMLElement {
         }
     }
 
+    esTransfer(target) {
+        if (!target || this.$floating) {
+            throw 'Illegal target or state!';
+        }
+        this.$floating = true;
+        this.parentNode.removeChild(this);
+        target.appendChild(this);
+        this.$floating = false;
+    }
+
+    esFlyaway() {
+        if (this.$floating) {
+            throw 'Illegal target or state!';
+        }
+        this.$floating = true;
+        this.parentNode.removeChild(this);
+        return this;
+    }
+
     esReset() {
-        this.$component = eval("({id:0, data: {}, styles: {default:{}}, slots: {}, events: {}, accelerator: {}})");
-        this.$extend = eval("({data: {}, styles: {}, slots: {}, events: {}, alias: {__proto__:null}})");
+        this.$component = eval("({id:0, data: {}, slots: {}, events: {}, accelerator: {}})");
+        this.$extend = eval("({data: {}, events: {}, alias: {__proto__:null}})");
         if (this.$instance) {
             this.$instance.$element = undefined;
         }
         this.$instance = {
+            __proto__: null,
             $element: this,
             isMounted: false,
-            applyStyles: function() {
-                //apply style to first child
-                if (this.styles && this.styles.default && this.$element.children[0]) {
-                    this.$element.children[0].style = Object.keys(this.styles.default).map(key => {
-                        return `${key}:${this.styles.default[key]}`;
-                    }).join(';');
+            applyEvents: function() {
+                for (const ename in this.$element.$instance.events) {
+                    this.$element.setAttribute(ename, `$es.on(event)`);
+                }
+                for (const ename in this.$element.$extend.events) {
+                    this.$element.setAttribute(ename, `$es.on(event)`);
                 }
             },
-            render: function () {
+            render: function() {
                 this.$element.innerHTML = eval('(' + '`' + this.template + '`' + ')');
             }
         };
@@ -294,16 +384,26 @@ class ESUseElement extends HTMLElement {
                 if (!slotName || slotName == 'default') {
                     continue;
                 }
-                slots[slotName] = e.innerHTML;
-            }
-            else if (tagName == 'script' && extend == undefined) {
+                let slotValue = slots[slotName];
+                if (!slotValue) {
+                    slots[slotName] = e.innerHTML;
+                } else if (typeof slotValue == 'string') {
+                    slots[slotName] = [slotValue, e.innerHTML];
+                } else {
+                    if (!slotValue instanceof Array) {
+                        throw `Slot confliected!`;
+                    }
+                    slotValue.push(e.innerHTML);
+                }
+            } else if (tagName == 'script' && extend == undefined) {
                 extend = eval(`(${e.innerHTML})`);
                 if (!extend) {
                     throw `Illegal script found!`;
+                } else if (extend.slots) {
+                    throw `Defines slots inside script block is not allowed!`;
                 }
                 Object.merge_es_private(this.$extend, extend);
-            }
-            else {
+            } else {
                 throw `Only template and script can be placed in <es-use> block!`;
             }
         }
@@ -312,43 +412,49 @@ class ESUseElement extends HTMLElement {
 
         Object.merge_es_private(this.$instance, this.$component, {
             data: this.$extend.data,
-            styles: this.$extend.styles,
             slots
         });
 
-        {//proxies
+        for (const scope of['data', 'slots', 'events']) {
+            for (const key in this.$instance[scope]) {
+                if (!this.$instance[scope]) continue;
+                let value = this.$instance[scope][key];
+                if (typeof value != 'object') continue;
+                if (value[isEsProps]) {
+                    this.$instance[scope][key] = value.default;
+                }
+            }
+        }
+
+        { //proxies
             let obs = this.$extend.alias;
             for (const key in obs) {
                 let v = undefined;
                 let ms = undefined;
-                if (obs.__lookupGetter__(key) || obs.__lookupSetter__(key)) {
+                if ((obs.__lookupGetter__ && obs.__lookupGetter__(key)) || (obs.__lookupSetter__ && obs.__lookupSetter__(key))) {
                     throw `Defines seter | getter inside alias is not allowed!`;
-                }
-                else if (typeof (v = obs[key]) != 'string') {
+                } else if (typeof(v = obs[key]) != 'string') {
                     throw `Only string is allowed to define inside alias!`;
-                }
-                else if (!(ms = /^((?:[$_a-z][$_0-9a-z]*\.)*)([$_a-z][$_0-9a-z]*)/i.exec(v))) {
+                } else if (!(ms = /^((?:[$_a-z][$_0-9a-z]*\.)*)([$_a-z][$_0-9a-z]*)/i.exec(v))) {
                     throw `Illegal expression '${v}'!`;
                 }
                 let scope = this.$parent ? this.$parent.$instance : undefined;
                 let valuePath = v;
                 if (!ms[1]) {
                     valuePath = `this.data.${v}`;
-                }
-                else if (ms[1].startsWith(`data.`)) {
+                } else if (ms[1].startsWith(`data.`)) {
                     valuePath = `this.${v}`;
-                }
-                else if (!ms[1].startsWith('this.')) {
+                } else if (!ms[1].startsWith('this.')) {
                     scope = window;
                 }
                 obs[key] = {
                     scope: scope,
                     get: eval(`(function(){return ${valuePath}})`),
-                    set: eval(`(function(val){${valuePath}=val;})`)
+                    set: eval(`(function(val){${valuePath}=val;})`),
+                    delete: eval(`(function(val){delete ${valuePath};})`),
                 };
             }
-
-            this.$instance.data = $es.EsProxy(this.$instance.data, this.$extend.alias || {});
+            this.$instance.data = $es.EsData(this.$instance.data, { deepInscpect: this.$extend.deepInscpect, extend: this.$extend.alias });
         }
 
         if (this.$instance.created) {
@@ -362,8 +468,7 @@ class ESUseElement extends HTMLElement {
         let compId = this.calComponentId();
         if (compId != this.$component.id) {
             this.esReshape(compId);
-        }
-        else if (!force) {
+        } else if (!force) {
             return;
         }
 
@@ -371,25 +476,20 @@ class ESUseElement extends HTMLElement {
 
         if (!this.$instance.isMounted) {
             this.$instance.isMounted = true;
-            //binds events to first child
-            let element = this.children[0];
-            for (const ename in this.$extend.events) {
-                element.setAttribute(ename, `$es.on(event)`);
-            }
             if (this.$instance.mounted) {
                 this.$instance.mounted.bind(this.$instance, this).call();
             }
         }
     }
 
-    esUpdate(key, value) {
+    esUpdate(keyPath, value) {
+        let key = keyPath.split('.')[0];
         let handle = this.$instance.accelerator[key];
         if (handle) {
             $es.renderStack.push(this);
             try {
-                return handle.bind(this.$instance, value).call();
-            }
-            finally {
+                return handle.bind(this.$instance, value, keyPath).call(), true;
+            } finally {
                 if ($es.renderStack.pop() != this) {
                     console.warn('Es internal error!');
                 }
@@ -398,17 +498,12 @@ class ESUseElement extends HTMLElement {
         return false;
     }
 
-    esApplyStyle(name) {
-        this.$instance.applyStyles.bind(this.$instance, name || 'default').call();
-    }
-
     esRender() {
         $es.renderStack.push(this);
         try {
             this.$instance.render.bind(this.$instance).call();
-            this.$instance.applyStyles.bind(this.$instance).call();
-        }
-        finally {
+            this.$instance.applyEvents.bind(this.$instance).call();
+        } finally {
             if ($es.renderStack.pop() != this) {
                 console.warn('Es internal error!');
             }
@@ -424,7 +519,7 @@ $es.router = {
     urlPrefix: '',
     routes: {},
     stack: [],
-    fromPath: function (path) {
+    fromPath: function(path) {
         if (path == '/') {
             return this.routes.$;
         }
@@ -440,7 +535,7 @@ $es.router = {
             return undefined;
         }
     },
-    define: function (component) {
+    define: function(component) {
         if (component.id == '/') {
             if (this.routes.$) {
                 throw `Component[${component.id}] aready exists!`;
@@ -464,7 +559,7 @@ $es.router = {
         }
         objNode.$ = component;
     },
-    popstateChanged: function () {
+    popstateChanged: function() {
         let uriCur = location.href.substring($es.router.urlPrefix.length);
         if (!this.stack.length || this.stack[this.stack.length - 1].$component.id == uriCur) {
             return;
@@ -474,7 +569,7 @@ $es.router = {
             this.stack[--i].esReload();
         }
     },
-    goto: function (uri) {
+    goto: function(uri) {
         if (uri.startsWith('http:') || uri.startsWith('https:') || uri.startsWith('file:')) { //full url
             location.href = uri;
         } else {
@@ -520,8 +615,7 @@ class EsSlotElement extends ESUseElement {
         this.$depth = depth;
         if (depth < $es.router.stack.length) {
             $es.router.stack.splice(depth);
-        }
-        else {
+        } else {
             $es.router.stack.push(this);
         }
     }
@@ -554,15 +648,27 @@ class EsSlotElement extends ESUseElement {
                 return undefined;
             }
             uriOrg = uriOrg.substring($es.router.uriBase.length + 1);
-            if (compId && compId.startsWith(uriOrg)) {
-                uriOrg = compId;
+
+            let isH = true,
+                isQ = false;
+            let tail = uriOrg.split('#')[1] || (isH = false, isQ = true, uriOrg.split('?')[1]) || (isQ = false, '');
+            if (tail) tail = (isH ? '#' : '?') + tail;
+            let uri = uriOrg.substring(0, uriOrg.length - tail.length);
+
+            if (compId && compId.startsWith(uri)) {
+                uri = compId;
             }
-            uriOrg = uriOrg.substring(1);
-            let names = uriOrg.split('#')[0].split('?')[0].split('/');
+
+            let names = uri.substring(1).split('/');
             if (names.length < this.$depth) {
                 throw `Illegal uri[${uriOrg}]!`;
             } else {
                 compId = '/' + names.slice(0, this.$depth).join('/');
+                if (tail) {
+                    this.$uriQuery = tail;
+                } else {
+                    this.$uriQuery = undefined;
+                }
             }
         }
         return compId;
@@ -580,9 +686,12 @@ class EsSlotElement extends ESUseElement {
         //clear all children
         this.innerHTML = '';
         if (super.esReshape(compId)) {
-            history.replaceState({
-                key: Date.now().toFixed(3)
-            }, '', $es.router.urlPrefix + compId);
+            let uri = compId + (this.$uriQuery || '');
+            if (!location.hash.substring(1).startsWith(uri)) {
+                history.replaceState({
+                    key: Date.now().toFixed(3)
+                }, '', $es.router.urlPrefix + compId + (this.$uriQuery || ''));
+            }
             this.setAttribute('component', compId);
         }
     }
