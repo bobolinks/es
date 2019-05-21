@@ -28,7 +28,7 @@
                     set title2(val) { console.log('set title2 = ', val); window.vars.title = val; }, 
                     get title2() { console.log('get title2 = ', window.vars.title); return window.vars.title; }
                 },
-                alias: { 
+                reflect: { 
                     title3: '$es.store.data.title'
                 } 
             }

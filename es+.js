@@ -24,11 +24,6 @@ SOFTWARE.
  * @author bobolinks
  */
 
-window.isEsData = Symbol("isEsData");
-window.isEsProps = Symbol("isEsProps");
-window.EsAddListener = Symbol("EsAddListener");
-window.EsRemoveListener = Symbol("EsRemoveListener");
-
 Object.merge_es_private = function(dst, ...rest) {
     for (const src of rest) {
         if (typeof dst != 'object' || typeof dst != typeof src) {
@@ -100,6 +95,9 @@ window.$es = window.$es || {
         return e ? e.$instance : undefined;
     },
     on(event) {
+        if (event.defaultPrevented) {
+            return;
+        }
         let em = this.em(event.srcElement);
         if (!em) {
             return undefined;
@@ -112,26 +110,90 @@ window.$es = window.$es || {
         if (typeof exNameOrFunc == 'function') {
             handled |= exNameOrFunc.bind(it, event).call();
         } else if (exNameOrFunc && em.$parent) {
-            handle = em.$parent.$instance.events[exNameOrFunc];
+            handle = (em.$parent.$instance.events||{})[exNameOrFunc] || (em.$parent.$instance.methods||{})[exNameOrFunc];
             if (handle) {
                 handled |= handle.bind(em.$parent.$instance, event).call();
             }
         }
-
+        event.preventDefault();
         return handled;
     }
 };
 
+window.isEsData = Symbol("isEsData");
+window.isEsType = Symbol("isEsType");
+window.EsGetObs = Symbol("EsGetObs");
 $es.EsData = function(object, options = {}) {
-    return new Proxy(object, {
+    let proxy = new Proxy(object, {
+        uniqueId: options.owner ? options.owner.genId() : 0,
+        uniqueIdNext: options.owner ? undefined : 1,
         deepInspect: options.deepInspect || false,
-        path: options.path || '',
+        name: options.name || '',
         owner: options.owner || undefined,
+        parent: options.parent || undefined,
         extend: options.extend || { __proto__: null },
-        watchers: { __proto__: null },
+        __ob__: { __proto__: null },
+        genId: function() {
+            return this.uniqueIdNext++;
+        },
+        getPath: function() {
+            let names = [];
+            let node = this;
+            while(node && node.name) {
+                names.push(node.name);
+                node = node.parent;
+            }
+            return names.reverse().join('.');
+        },
+        connect(target, receiver) {
+            for (const key in target) {
+                if (!target.hasOwnProperty(key)) {
+                    continue;
+                }
+                let value = Reflect.get(target, key, receiver);
+                if (typeof value != 'object') continue;
+                else if (value[isEsData]) {
+                    let h = value[EsGetObs];
+                    if (h.parent == undefined) {
+                        h.parent = this;
+                    }
+                    continue;
+                }
+                else if (!value.__proto__ || [Object, Array, Map].indexOf(value.__proto__.constructor) >= 0) {
+                    let proxy = $es.EsData(value, { deepInspect: this.deepInspect, name: Array.isArray(target) ? '*': key, owner: this.owner || this, parent: this });
+                    Reflect.set(value, key, proxy, receiver);
+                    proxy[EsGetObs].connect(value, proxy);
+                    continue;
+                }
+            }
+        },
+        descendantsOf(root, node) {
+            while(node) {
+                if (root == node) return true;
+                node = node.parent;
+            }
+            return false;
+        },
+        addListener(listener) {
+            let keyPath = listener['path'];
+            if (keyPath && listener['id']) {
+                let __ob__ = (this.owner || this).__ob__;
+                (__ob__[keyPath] || (__ob__[keyPath] = new Set())).add(listener['id']);
+            }
+        },
+        removeListener(listener) {
+            let keyPath = listener['path'];
+            let watcher = (this.owner || this).__ob__[keyPath];
+            if (watcher) {
+                watcher.delete(listener['id']);
+            }
+        },
         get: function(target, key, receiver) {
             if (key === isEsData)
                 return true;
+            else if (key === EsGetObs) {
+                return this;
+            }
             else if (!target.hasOwnProperty(key)) {
                 return Reflect.get(target, key, receiver);
             }
@@ -139,43 +201,53 @@ $es.EsData = function(object, options = {}) {
             if (mapper) {
                 return mapper.get.bind(mapper.scope).call();
             }
-            let keyPath = `${this.path?(this.path + '.'):''}${key}`;
             let renderer = $es.getCurrentRenderer();
             if (renderer) {
-                watchers = (this.owner || this).watchers;
-                (watchers[keyPath] || (watchers[keyPath] = new Set())).add(renderer.$unique);
+                let __ob__ = (this.owner || this).__ob__;
+                let keyPath = `${this.getPath()}.${Array.isArray(target) ? '*': key }`;
+                (__ob__[keyPath] || (__ob__[keyPath] = new Set())).add(renderer.$unique);
             }
             let value = Reflect.get(target, key, receiver);
-            if (this.deepInspect && typeof value == 'object' && ([Object, Array, Map, Set].indexOf(value.__proto__.constructor) >= 0) && !value[isEsData]) {
-                value = $es.EsData(value, { deepInspect: this.deepInspect, path: keyPath, owner: this.owner || this });
+            if (this.deepInspect && typeof value == 'object' && ([Object, Array, Map].indexOf(value.__proto__.constructor) >= 0) && !value[isEsData]) {
+                value = $es.EsData(value, { deepInspect: this.deepInspect, name: Array.isArray(target) ? '*': key, owner: this.owner || this, parent: this });
                 Reflect.set(target, key, value, receiver);
             }
             return value;
         },
         set: function(target, key, value, receiver) {
-            if (key === EsAddListener) {
-                let keyPath = value['path'];
-                if (keyPath && value['id']) {
-                    watchers = (this.owner || this).watchers;
-                    (watchers[keyPath] || (watchers[keyPath] = new Set())).add(value['id']);
-                }
-                return true;
-            } else if (key === EsRemoveListener) {
-                let keyPath = value['path'];
-                let watcher = (this.owner || this).watchers[keyPath];
-                if (watcher) {
-                    watcher.delete(value['id']);
-                }
-                return true;
-            }
             let mapper = this.extend[key];
             if (mapper) {
                 mapper.set.bind(mapper.scope, value).call();
                 return true;
             }
-            let rs = Reflect.set(target, key, value, receiver);
-            let keyPath = `${this.path?(this.path + '.'):''}${key}`;
-            let watcher = (this.owner || this).watchers[keyPath];
+            let oldValue = Reflect.get(target, key, receiver);
+            if (oldValue == value) {
+                return true;
+            }
+            let oh = undefined;
+            if (typeof oldValue == 'object' && (oh = oldValue[EsGetObs]) && oh.parent == this) {
+                oh.parent = undefined;
+            }
+            let nh = undefined;
+            let settle = false;
+            let rs = undefined;
+            if (typeof value == 'object' && this.deepInspect) {
+                if (value[isEsData]) {
+                    if ((nh = value[EsGetObs]).parent == undefined || (nh.parent == this && (oh && this.descendantsOf(oh, nh)))) {
+                        nh.parent = this;
+                    }
+                }
+                else if (!value.__proto__ || [Object, Array, Map].indexOf(value.__proto__.constructor) >= 0) {
+                    let proxy = $es.EsData(value, { deepInspect: this.deepInspect, name: Array.isArray(target) ? '*': key, owner: this.owner || this, parent: this });
+                    rs = Reflect.set(target, key, proxy, receiver);
+                    settle = true;
+                }
+            }
+            if (!settle) {
+                rs = Reflect.set(target, key, value, receiver);
+            }
+            let keyPath = `${this.getPath()}.${Array.isArray(target) ? '*': key }`;
+            let watcher = (this.owner || this).__ob__[keyPath];
             if (watcher) {
                 for (const uinid of watcher) {
                     let element = $es.em(uinid);
@@ -183,7 +255,7 @@ $es.EsData = function(object, options = {}) {
                         watcher.delete(uinid);
                     } else {
                         //tries to update first
-                        if (!element.esUpdate(keyPath, value)) {
+                        if (!element.esUpdate(keyPath, value, receiver)) {
                             //renders all content
                             element.esRender();
                         }
@@ -192,34 +264,48 @@ $es.EsData = function(object, options = {}) {
             }
             return rs;
         },
-        deleteProperty(target, key) {
+        deleteProperty(target, key, receiver) {
             let mapper = this.extend[key];
             if (mapper) {
                 mapper.delete.bind(mapper.scope).call();
                 return true;
             }
+            let value = Reflect.get(target, key, receiver);
+            let h = undefined;
+            if (typeof value == 'object' && (h = value[EsGetObs]).parent == this) {
+                h.parent = undefined;
+            }
             let rs = Reflect.deleteProperty(target, key);
-            let keyPath = `${this.path?(this.path + '.'):''}${key}`;
-            let watcher = (this.owner || this).watchers[keyPath];
-            if (watcher) {
-                for (const uinid of watcher) {
-                    let element = $es.em(uinid);
-                    if (!element) {
-                        watcher.delete(uinid);
-                    } else {
-                        //tries to update first
-                        if (!element.esUpdate(keyPath, value)) {
-                            //renders all content
-                            element.esRender();
+            let keyPath = `${this.getPath()}.${Array.isArray(target) ? '*': key }`;
+            let keyPathDot = keyPath + '.';
+            let __ob__ = (this.owner || this).__ob__;
+            for (const wname in __ob__) {
+                if (wname != keyPath && !wname.startsWith(keyPathDot)) {
+                    continue;
+                }
+                let watcher = __ob__[wname];
+                if (watcher) {
+                    for (const uinid of watcher) {
+                        let element = $es.em(uinid);
+                        if (element) {
+                            //tries to update first
+                            if (!element.esUpdate(wname, undefined, receiver)) {
+                                //renders all content
+                                element.esRender();
+                            }
                         }
                     }
+                    //clear up __ob__
+                    delete __ob__[wname];
                 }
-                //clear up watchers
-                (this.owner || this).watchers[keyPath] = new Set();
             }
             return rs;
         },
     });
+    if (options.deepInspect) {
+        proxy[EsGetObs].connect(object, proxy);
+    }
+    return proxy;
 };
 
 class ESUseElement extends HTMLElement {
@@ -339,7 +425,7 @@ class ESUseElement extends HTMLElement {
 
     esReset() {
         this.$component = eval("({id:0, data: {}, slots: {}, events: {}, accelerator: {}})");
-        this.$extend = eval("({data: {}, events: {}, alias: {__proto__:null}})");
+        this.$extend = eval("({data: {}, events: {}, reflect: {__proto__:null}})");
         if (this.$instance) {
             this.$instance.$element = undefined;
         }
@@ -399,9 +485,8 @@ class ESUseElement extends HTMLElement {
                 extend = eval(`(${e.innerHTML})`);
                 if (!extend) {
                     throw `Illegal script found!`;
-                } else if (extend.slots) {
-                    throw `Defines slots inside script block is not allowed!`;
                 }
+                Object.merge_es_private(slots, extend.slots || {});
                 Object.merge_es_private(this.$extend, extend);
             } else {
                 throw `Only template and script can be placed in <es-use> block!`;
@@ -410,31 +495,39 @@ class ESUseElement extends HTMLElement {
 
         Object.freeze(this.$extend);
 
-        Object.merge_es_private(this.$instance, this.$component, {
+        Object.merge_es_private(this.$instance, this.$component);
+
+        //remove EsType first
+        for (const scope of['data', 'slots', 'events']) {
+            let mod = this.$instance[scope];
+            for (const key in mod) {
+                let value = undefined;
+                if ((value = mod.__lookupGetter__(key))) {
+                    value.bind(this.$instance);
+                    continue;
+                }
+                value = mod[key];
+                if (typeof value != 'object') continue;
+                if (value['isEsType'] == isEsType) {
+                    mod[key] = value.default;
+                }
+            }
+        }
+        
+        Object.merge_es_private(this.$instance, {
             data: this.$extend.data,
             slots
         });
 
-        for (const scope of['data', 'slots', 'events']) {
-            for (const key in this.$instance[scope]) {
-                if (!this.$instance[scope]) continue;
-                let value = this.$instance[scope][key];
-                if (typeof value != 'object') continue;
-                if (value[isEsProps]) {
-                    this.$instance[scope][key] = value.default;
-                }
-            }
-        }
-
         { //proxies
-            let obs = this.$extend.alias;
+            let obs = this.$extend.reflect;
             for (const key in obs) {
                 let v = undefined;
                 let ms = undefined;
                 if ((obs.__lookupGetter__ && obs.__lookupGetter__(key)) || (obs.__lookupSetter__ && obs.__lookupSetter__(key))) {
-                    throw `Defines seter | getter inside alias is not allowed!`;
+                    throw `Defines seter | getter inside reflect is not allowed!`;
                 } else if (typeof(v = obs[key]) != 'string') {
-                    throw `Only string is allowed to define inside alias!`;
+                    throw `Only string is allowed to define inside reflect!`;
                 } else if (!(ms = /^((?:[$_a-z][$_0-9a-z]*\.)*)([$_a-z][$_0-9a-z]*)/i.exec(v))) {
                     throw `Illegal expression '${v}'!`;
                 }
@@ -457,7 +550,21 @@ class ESUseElement extends HTMLElement {
                     delete: eval(`(function(val){delete ${valuePath};})`),
                 };
             }
-            this.$instance.data = $es.EsData(this.$instance.data, { deepInscpect: this.$extend.deepInscpect, extend: this.$extend.alias });
+            this.$instance.data = $es.EsData(this.$instance.data, { deepInscpect: this.$extend.deepInscpect, extend: this.$extend.reflect });
+        }
+
+        {
+            //proxy slots
+            this.$instance.slots = new Proxy(this.$instance.slots, {
+                get: function(target, key, receiver) {
+                    let value = Reflect.get(target, key, receiver);
+                    if (!target.hasOwnProperty(key)) {
+                        return value;
+                    }
+                    return typeof value == 'function' ? value() : value;
+                }
+            });
+                
         }
 
         if (this.$instance.created) {
@@ -469,7 +576,7 @@ class ESUseElement extends HTMLElement {
 
     esReload(force = false) {
         let compId = this.calComponentId();
-        if (compId != this.$component.id) {
+        if (!this.$component || compId != this.$component.id) {
             this.esReshape(compId);
         } else if (!force) {
             return;
@@ -485,13 +592,14 @@ class ESUseElement extends HTMLElement {
         }
     }
 
-    esUpdate(keyPath, value) {
-        let key = keyPath.split('.')[0];
-        let handle = this.$instance.accelerator[key];
+    esUpdate(keyPath, value, object) {
+        let names = keyPath.split('.');
+        let key = (names && names.length) ? names[names.length - 1] : undefined;
+        let handle = this.$instance.accelerator[key] || this.$instance.accelerator['*'];
         if (handle) {
             $es.renderStack.push(this);
             try {
-                return handle.bind(this.$instance, value, keyPath).call(), true;
+                return handle.bind(this.$instance, value, keyPath, object).call(), true;
             } finally {
                 if ($es.renderStack.pop() != this) {
                     console.warn('Es internal error!');
